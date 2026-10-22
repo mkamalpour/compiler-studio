@@ -16,7 +16,7 @@ from .worker import AnalysisWorker
 from .editor import CodeEditor
 from .friendly_ui import FriendlyUI
 from .example_library import STARTER
-from .presentation import token_name, STAGES, explain_diagnostic
+from .presentation import token_group, token_name, STAGES, explain_diagnostic
 
 BLUE, INK, MUTED, BG = "#2457d6", "#18243b", "#53647c", "#f3f5fa"
 
@@ -134,11 +134,11 @@ class Studio(FriendlyUI):
         style.configure("Horizontal.TProgressbar", background=BLUE, troughcolor="#e0e7f1", borderwidth=0)
 
     def _build(self):
-        header = tk.Frame(self.root, bg="#14243e", padx=22, pady=12)
+        header = tk.Frame(self.root, bg="#14243e", padx=16, pady=6)
         header.pack(fill="x")
-        tk.Label(header, text="Compiler Studio", font=("Segoe UI", 23, "bold"), fg="white", bg="#14243e").pack(side="left")
+        tk.Label(header, text="Compiler Studio", font=("Segoe UI", 17, "bold"), fg="white", bg="#14243e").pack(side="left")
         tk.Label(header, text="Check your code. Understand the results.", font=("Segoe UI", 11), fg="#b9dedb", bg="#14243e").pack(side="right")
-        toolbar = ttk.Frame(self.root, padding=(18, 10, 18, 6))
+        toolbar = ttk.Frame(self.root, padding=(12, 5, 12, 4))
         toolbar.pack(fill="x")
         self.analyze_button = ttk.Button(toolbar, text="Analyze code  F5", command=self.run, style="Accent.TButton")
         self.analyze_button.pack(side="left", padx=3)
@@ -251,6 +251,10 @@ class Studio(FriendlyUI):
         ttk.Checkbutton(filters, text="Hide comments", variable=self.hide_comments, command=self._filter_tokens).pack(side="left")
         self.token_filter.trace_add("write", self._schedule_filter)
         self.tokens = self._table(tokens_tab, ("kind", "value", "location"), ("Type", "Text", "Line:col"), (140, 220, 70))
+        for group, color in {"Keywords": "#174ea6", "Names": "#9a4c00", "Values": "#8338a1",
+                             "Operators & symbols": "#216b38", "Needs fixing": "#b42318", "Comments": "#667085",
+                             "Other tokens": "#344054"}.items():
+            self.tokens.tag_configure(group, foreground=color)
         self.show_token_names = tk.BooleanVar(value=False)
         ttk.Checkbutton(tokens_tab, text="Show technical token names", variable=self.show_token_names,
                         command=self._filter_tokens).pack(side="bottom", anchor="w", pady=(5, 0))
@@ -847,7 +851,7 @@ class Studio(FriendlyUI):
             self._select_diagnostic()
         elif result["mode"] != "validate":
             self.tabs.select(self.workbench)
-            self.outputs.select(self.summary_tab)
+            self.outputs.select(self.tokens_tab)
 
     def _set_detail(self, text):
         self.diagnostic_detail.configure(state="normal")
@@ -877,7 +881,7 @@ class Studio(FriendlyUI):
             matched += 1
             if shown < 5000:
                 value = token["value"].replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
-                self.tokens.insert("", "end", iid=str(index), values=(token["kind"] if self.show_token_names.get() else token_name(token), value[:250], f"{token['line']}:{token['column']}"))
+                self.tokens.insert("", "end", iid=str(index), values=(token["kind"] if self.show_token_names.get() else token_name(token), value[:250], f"{token['line']}:{token['column']}"), tags=(token_group(token),))
                 shown += 1
         total = len(self.result["tokens"])
         self.token_count.set(f"{matched:,} of {total:,} tokens" + (" · first 5,000 matches shown" if matched > 5000 else " · click to locate source"))

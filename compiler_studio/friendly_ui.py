@@ -12,11 +12,11 @@ from .profiles import ricepy_profile, calculator_profile
 
 class FriendlyUI:
     def _build_banner(self, parent):
-        self.banner = tk.Frame(parent, bg="#eaf1ff", padx=16, pady=10)
-        self.banner.pack(fill="x", padx=20, pady=(3, 10))
+        self.banner = tk.Frame(parent, bg="#eaf1ff", padx=12, pady=5)
+        self.banner.pack(fill="x", padx=14, pady=(2, 5))
         self.banner_title = tk.StringVar(value="Start with a small example")
         self.banner_detail = tk.StringVar(value="Edit the code or open a file, then click Analyze code.")
-        self.banner_heading = tk.Label(self.banner, textvariable=self.banner_title, font=("Segoe UI", 16, "bold"),
+        self.banner_heading = tk.Label(self.banner, textvariable=self.banner_title, font=("Segoe UI", 12, "bold"),
                                        bg="#eaf1ff", fg="#204eaa", anchor="w")
         self.banner_heading.pack(fill="x")
         self.banner_text = tk.Label(self.banner, textvariable=self.banner_detail, font=("Segoe UI", 10),
@@ -37,8 +37,8 @@ class FriendlyUI:
     def _build_summary(self):
         self.summary_tab = ttk.Frame(self.outputs, padding=16)
         self.outputs.insert(0, self.summary_tab, text="Summary")
-        exports = ttk.Frame(self.summary_tab)
-        exports.pack(side="bottom", anchor="w", pady=(10, 0))
+        exports = ttk.Frame(self.outputs.master)
+        exports.pack(side="bottom", fill="x", padx=(10, 0), pady=(5, 0), before=self.outputs)
         self.report_button = ttk.Button(exports, text="Save report (JSON)", command=self.export_json, state="disabled")
         self.report_button.pack(side="left", padx=(0, 5))
         self.csv_button = ttk.Button(exports, text="Save tokens (CSV)", command=self.export_csv, state="disabled")
@@ -57,12 +57,12 @@ class FriendlyUI:
         self.explore_structure = ttk.Button(actions, text="Code structure", command=lambda: self.outputs.select(self.structure_tab), state="disabled")
         self.explore_structure.pack(side="left")
         ttk.Button(self.summary_tab, text="Choose another example", command=lambda: self.tabs.select(self.examples_tab)).pack(anchor="w", pady=3)
-        self.outputs.select(self.summary_tab)
+        self.outputs.select(self.tokens_tab)
 
     def _build_examples(self):
         heading = ttk.Frame(self.examples_tab)
         heading.pack(fill="x", pady=(0, 10))
-        ttk.Label(heading, text="Try it with an example", font=("Segoe UI", 18, "bold")).pack(anchor="w")
+        ttk.Label(heading, text="Try it with an example", font=("Segoe UI", 14, "bold")).pack(anchor="w")
         ttk.Label(heading, text="Choose a topic, preview the code, then open it in a new tab. Your existing code stays safe.",
                   style="Muted.TLabel", wraplength=900).pack(anchor="w", pady=(3, 0))
         split = ttk.Panedwindow(self.examples_tab, orient="horizontal")
@@ -79,21 +79,25 @@ class FriendlyUI:
         languages.bind("<<ComboboxSelected>>", self._example_language_changed)
         ttk.Label(choices, text="2  Pick a topic", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(15, 6))
         self.example_topic = tk.StringVar(value="Variables")
-        self.example_topics = ttk.Combobox(choices, textvariable=self.example_topic, values=list(TOPICS), state="readonly", width=24)
-        self.example_topics.pack(fill="x")
-        self.example_topics.bind("<<ComboboxSelected>>", lambda event: self.refresh_example())
+        self.topic_choices = ttk.Frame(choices)
+        self.topic_choices.pack(fill="x")
+        self.topic_buttons = {}
+        for column in range(2):
+            self.topic_choices.columnconfigure(column, weight=1)
         choice_footer.pack_forget()
         choice_footer.pack(fill="x", pady=(3, 0))
-        ttk.Label(choice_footer, text="3  Choose a difficulty", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(12, 6))
+        ttk.Label(choice_footer, text="3  Choose a difficulty", font=("Segoe UI", 11, "bold")).pack(anchor="w", pady=(10, 4))
         self.example_level = tk.StringVar(value="Simple")
-        levels = ttk.Combobox(choice_footer, textvariable=self.example_level, values=LEVELS, state="readonly", width=24)
+        levels = ttk.Frame(choice_footer)
         levels.pack(fill="x")
-        levels.bind("<<ComboboxSelected>>", lambda event: self.refresh_example())
+        for level in LEVELS:
+            ttk.Radiobutton(levels, text=level, value=level, variable=self.example_level,
+                            command=self.refresh_example).pack(side="left", padx=(0, 8))
         self.example_description = tk.StringVar()
         ttk.Label(choice_footer, textvariable=self.example_description, style="Muted.TLabel", wraplength=285,
                   justify="left").pack(anchor="w", pady=(14, 8))
         self.generate_button = ttk.Button(choice_footer, text="Generate another", command=self.refresh_example)
-        self.generate_button.pack(fill="x", pady=4)
+        self.generate_button.pack(side="bottom", fill="x", pady=4, before=choice_footer.winfo_children()[0])
         actions = ttk.Frame(preview)
         actions.pack(side="bottom", fill="x", pady=(9, 0))
         ttk.Button(actions, text="Open in editor", command=self.open_example).pack(side="left")
@@ -104,7 +108,14 @@ class FriendlyUI:
 
     def _example_language_changed(self, event=None):
         topics = list(TOPICS) if self.example_language.get() == "RicePy++" else ["Arithmetic"]
-        self.example_topics.configure(values=topics)
+        for button in self.topic_buttons.values():
+            button.destroy()
+        self.topic_buttons.clear()
+        for index, topic in enumerate(topics):
+            button = ttk.Radiobutton(self.topic_choices, text=topic, value=topic,
+                                    variable=self.example_topic, command=self.refresh_example)
+            button.grid(row=index // 2, column=index % 2, sticky="w", padx=(0, 6), pady=2)
+            self.topic_buttons[topic] = button
         self.example_topic.set(topics[0])
         self.refresh_example()
 

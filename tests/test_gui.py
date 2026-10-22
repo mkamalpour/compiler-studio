@@ -290,12 +290,13 @@ class GuiTests(unittest.TestCase):
         self.assertLess(len(self.app.source.get("1.0", "end-1c").splitlines()), 8)
         self.app.analyze_button.invoke()
         self.wait_for_result()
-        self.assertEqual(self.app.outputs.select(), str(self.app.summary_tab))
+        self.assertEqual(self.app.outputs.select(), str(self.app.tokens_tab))
         self.assertIn("looks good", self.app.banner_title.get())
         self.assertEqual(self.app.metrics["parser"].get(), "Passed")
         self.assertEqual(str(self.app.csv_button["state"]), "normal")
         integer = next(str(index) for index, token in enumerate(self.app.result["tokens"]) if token["kind"] == "INTEGER")
         self.assertEqual(self.app.tokens.item(integer, "values")[0], "Whole number")
+        self.assertTrue(self.app.tokens.item(integer, "tags"))
         self.app.show_token_names.set(True)
         self.app._filter_tokens()
         self.assertEqual(self.app.tokens.item(integer, "values")[0], "INTEGER")
@@ -307,8 +308,9 @@ class GuiTests(unittest.TestCase):
     def test_examples_preserve_existing_code_and_analyze_the_edited_preview(self):
         first = self.app.active_document
         original = first.editor.get("1.0", "end-1c")
-        self.app.example_topic.set("Variables")
-        self.app.refresh_example()
+        self.app.topic_buttons["Loops"].invoke()
+        self.assertEqual(self.app.example_topic.get(), "Loops")
+        self.app.topic_buttons["Variables"].invoke()
         self.app.example_preview.insert("end", "\nint previewValue = 123;")
         self.assertTrue(self.app.open_example(analyze=True))
         self.wait_for_result()
@@ -378,14 +380,14 @@ class GuiTests(unittest.TestCase):
         self.app.run()
         self.wait_for_result()
         self.root.update()
-        for button in (self.app.report_button, self.app.csv_button, self.app.explore_tokens, self.app.explore_structure):
+        for button in (self.app.report_button, self.app.csv_button):
             self.assertTrue(button.winfo_ismapped())
             self.assertGreater(button.winfo_height(), 25)
-            self.assertLessEqual(button.winfo_rooty() + button.winfo_height(), self.app.summary_tab.winfo_rooty() + self.app.summary_tab.winfo_height())
+            self.assertLessEqual(button.winfo_rooty() + button.winfo_height(), self.app.workbench.winfo_rooty() + self.app.workbench.winfo_height())
         self.app.tabs.select(self.app.examples_tab)
         self.root.update()
         self.assertIn("not been checked", self.app.banner_detail.get())
-        for widget in (self.app.example_topics, self.app.generate_button):
+        for widget in (*self.app.topic_buttons.values(), self.app.generate_button):
             self.assertTrue(widget.winfo_ismapped())
             self.assertGreater(widget.winfo_height(), 20)
             self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(), self.app.examples_tab.winfo_rooty() + self.app.examples_tab.winfo_height())
