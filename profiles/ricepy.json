@@ -1,0 +1,449 @@
+{
+  "name": "RicePy++ · Assignments 1 + 2",
+  "rules": [
+    {
+      "name": "SPACE",
+      "pattern": "[ \\t\\r\\n]+",
+      "priority": 0,
+      "channel": "skip",
+      "label": ""
+    },
+    {
+      "name": "COMMENT",
+      "pattern": "\"\"\"[\\s\\S]*?\"\"\"",
+      "priority": 30,
+      "channel": "comment",
+      "label": "multi-line comment"
+    },
+    {
+      "name": "UNCLOSED_COMMENT",
+      "pattern": "\"\"\"(?:(?!\"\"\")[\\s\\S])*\\Z",
+      "priority": 30,
+      "channel": "error",
+      "label": "Unclosed multi-line comment"
+    },
+    {
+      "name": "LINE_COMMENT",
+      "pattern": "#[^\\r\\n]*",
+      "priority": 20,
+      "channel": "comment",
+      "label": "single-line comment"
+    },
+    {
+      "name": "TEXT",
+      "pattern": "\"(?:[^\"\\\\\\r\\n]|\\\\[^\"\\r\\n])*\"",
+      "priority": 10,
+      "channel": "token",
+      "label": "string literal"
+    },
+    {
+      "name": "BAD_TEXT",
+      "pattern": "\"[^\\r\\n]*",
+      "priority": -1,
+      "channel": "error",
+      "label": "Invalid string: close quotes on the same line; embedded quotes are forbidden"
+    },
+    {
+      "name": "BAD_NUMBER",
+      "pattern": "0[xX](?:[0-9A-Fa-f]*[G-Zg-z_][A-Za-z0-9_]*|(?=[^A-Za-z0-9_]|$))|(?!(?:0[xX]))[0-9]+[A-Za-z_][A-Za-z0-9_]*|[0-9]+\\.(?![0-9])|\\.[0-9]+|[0-9]+\\.[0-9]+[A-Za-z_][A-Za-z0-9_]*",
+      "priority": 15,
+      "channel": "error",
+      "label": "Malformed number or identifier starting with a digit"
+    },
+    {
+      "name": "BAD_IDENT",
+      "pattern": "_[A-Za-z0-9_]*",
+      "priority": 5,
+      "channel": "error",
+      "label": "Identifiers cannot start with underscore"
+    },
+    {
+      "name": "HEX",
+      "pattern": "0[xX][0-9a-fA-F]+",
+      "priority": 3,
+      "channel": "token",
+      "label": "hexadecimal literal"
+    },
+    {
+      "name": "FLOAT",
+      "pattern": "[0-9]+\\.[0-9]+",
+      "priority": 3,
+      "channel": "token",
+      "label": "double literal"
+    },
+    {
+      "name": "INTEGER",
+      "pattern": "[0-9]+",
+      "priority": 1,
+      "channel": "token",
+      "label": "integer literal"
+    },
+    {
+      "name": "IDENT",
+      "pattern": "[A-Za-z][A-Za-z0-9_]*",
+      "priority": 0,
+      "channel": "token",
+      "label": "identifier"
+    },
+    {
+      "name": "STRING",
+      "pattern": "string(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "INT",
+      "pattern": "int(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "DOUBLE",
+      "pattern": "double(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "BOOL",
+      "pattern": "bool(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "VOID",
+      "pattern": "void(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "BREAK",
+      "pattern": "break(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "CONTINUE",
+      "pattern": "continue(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "CLASS",
+      "pattern": "class(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "DERIVES",
+      "pattern": "derives(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "RETURN",
+      "pattern": "return(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "NULL",
+      "pattern": "null(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "SELF",
+      "pattern": "self(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "FOR",
+      "pattern": "for(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "WHILE",
+      "pattern": "while(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "IF",
+      "pattern": "if(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "ELSE",
+      "pattern": "else(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "ELIF",
+      "pattern": "elif(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "BEGIN",
+      "pattern": "begin(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "END",
+      "pattern": "end(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "GLOBAL",
+      "pattern": "global(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "CONST",
+      "pattern": "const(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "FUNCTION",
+      "pattern": "function(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "keyword"
+    },
+    {
+      "name": "TRUE",
+      "pattern": "true(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "boolean literal"
+    },
+    {
+      "name": "FALSE",
+      "pattern": "false(?![A-Za-z0-9_])",
+      "priority": 5,
+      "channel": "token",
+      "label": "boolean literal"
+    },
+    {
+      "name": "CALL_ASSIGN",
+      "pattern": ":=",
+      "priority": 2,
+      "channel": "token",
+      "label": "call assign"
+    },
+    {
+      "name": "COLON",
+      "pattern": ":",
+      "priority": 2,
+      "channel": "token",
+      "label": "colon"
+    },
+    {
+      "name": "EQ",
+      "pattern": "==",
+      "priority": 2,
+      "channel": "token",
+      "label": "check equal"
+    },
+    {
+      "name": "NE",
+      "pattern": "!=",
+      "priority": 2,
+      "channel": "token",
+      "label": "not equal"
+    },
+    {
+      "name": "LE",
+      "pattern": "<=",
+      "priority": 2,
+      "channel": "token",
+      "label": "lower equal"
+    },
+    {
+      "name": "GE",
+      "pattern": ">=",
+      "priority": 2,
+      "channel": "token",
+      "label": "greater equal"
+    },
+    {
+      "name": "AND",
+      "pattern": "\\&\\&",
+      "priority": 2,
+      "channel": "token",
+      "label": "and"
+    },
+    {
+      "name": "OR",
+      "pattern": "\\|\\|",
+      "priority": 2,
+      "channel": "token",
+      "label": "or"
+    },
+    {
+      "name": "LBRACKET",
+      "pattern": "\\[",
+      "priority": 2,
+      "channel": "token",
+      "label": "left bracket"
+    },
+    {
+      "name": "RBRACKET",
+      "pattern": "\\]",
+      "priority": 2,
+      "channel": "token",
+      "label": "right bracket"
+    },
+    {
+      "name": "LPAR",
+      "pattern": "\\(",
+      "priority": 2,
+      "channel": "token",
+      "label": "left parentheses"
+    },
+    {
+      "name": "RPAR",
+      "pattern": "\\)",
+      "priority": 2,
+      "channel": "token",
+      "label": "right parentheses"
+    },
+    {
+      "name": "LBRACE",
+      "pattern": "\\{",
+      "priority": 2,
+      "channel": "token",
+      "label": "left curly bracket"
+    },
+    {
+      "name": "RBRACE",
+      "pattern": "\\}",
+      "priority": 2,
+      "channel": "token",
+      "label": "right curly bracket"
+    },
+    {
+      "name": "PLUS",
+      "pattern": "\\+",
+      "priority": 2,
+      "channel": "token",
+      "label": "plus"
+    },
+    {
+      "name": "MINUS",
+      "pattern": "\\-",
+      "priority": 2,
+      "channel": "token",
+      "label": "minus"
+    },
+    {
+      "name": "STAR",
+      "pattern": "\\*",
+      "priority": 2,
+      "channel": "token",
+      "label": "multiply"
+    },
+    {
+      "name": "SLASH",
+      "pattern": "/",
+      "priority": 2,
+      "channel": "token",
+      "label": "divide"
+    },
+    {
+      "name": "MOD",
+      "pattern": "%",
+      "priority": 2,
+      "channel": "token",
+      "label": "modulo"
+    },
+    {
+      "name": "LT",
+      "pattern": "<",
+      "priority": 2,
+      "channel": "token",
+      "label": "lower than"
+    },
+    {
+      "name": "GT",
+      "pattern": ">",
+      "priority": 2,
+      "channel": "token",
+      "label": "greater than"
+    },
+    {
+      "name": "ASSIGN",
+      "pattern": "=",
+      "priority": 2,
+      "channel": "token",
+      "label": "equal"
+    },
+    {
+      "name": "NOT",
+      "pattern": "!",
+      "priority": 2,
+      "channel": "token",
+      "label": "not"
+    },
+    {
+      "name": "SEMI",
+      "pattern": ";",
+      "priority": 2,
+      "channel": "token",
+      "label": "semicolon"
+    },
+    {
+      "name": "DOT",
+      "pattern": "\\.",
+      "priority": 2,
+      "channel": "token",
+      "label": "dot"
+    },
+    {
+      "name": "COMMA",
+      "pattern": ",",
+      "priority": 2,
+      "channel": "token",
+      "label": "comma"
+    },
+    {
+      "name": "CARET",
+      "pattern": "\\^",
+      "priority": 2,
+      "channel": "token",
+      "label": "caret"
+    }
+  ],
+  "grammar": "start: statement*\n?statement: declaration SEMI\n          | assignment SEMI\n          | call_assignment SEMI\n          | call SEMI                    -> call_statement\n          | function_definition\n          | class_definition\n          | if_statement\n          | while_statement\n          | RETURN expr? SEMI            -> return_statement\n          | BREAK SEMI                   -> break_statement\n          | CONTINUE SEMI                -> continue_statement\n          | block\n          | SEMI                         -> empty_statement\ndeclaration: modifier? data_type IDENT array_size? initializer?\nmodifier: GLOBAL | CONST\ndata_type: (INT | DOUBLE | STRING | BOOL) STAR*\nreturn_type: data_type | VOID\narray_size: LBRACKET expr RBRACKET\ninitializer: ASSIGN expr\nassignment: target ASSIGN expr\ntarget: IDENT (LBRACKET expr RBRACKET)?\ncall_assignment: IDENT CALL_ASSIGN call\nfunction_definition: return_type FUNCTION IDENT LPAR parameters? RPAR block\nparameters: parameter (COMMA parameter)*\nparameter: IDENT COLON data_type\nclass_definition: CLASS IDENT BEGIN class_member* END\n?class_member: declaration SEMI | function_definition\nblock: LBRACE statement* RBRACE\nif_statement: IF LPAR expr RPAR block elif_clause* else_clause? SEMI\nelif_clause: ELIF LPAR expr RPAR block\nelse_clause: ELSE block\nwhile_statement: WHILE LPAR expr RPAR block SEMI\n?expr: logical_or\n?logical_or: logical_or OR logical_and    -> binary\n           | logical_and\n?logical_and: logical_and AND equality    -> binary\n            | equality\n?equality: equality (EQ | NE) comparison  -> binary\n         | comparison\n?comparison: comparison (LT | GT | LE | GE) sum -> binary\n           | sum\n?sum: sum (PLUS | MINUS) product          -> binary\n    | product\n?product: product (STAR | SLASH | MOD) unary -> binary\n        | unary\n?unary: (NOT | MINUS) unary               -> unary\n      | atom\n?atom: INTEGER | FLOAT | HEX | TEXT | TRUE | FALSE | NULL\n     | IDENT LBRACKET expr RBRACKET      -> index\n     | IDENT DOT IDENT                  -> member\n     | call\n     | IDENT                            -> identifier\n     | LPAR expr RPAR                    -> grouped\ncall: IDENT LPAR arguments? RPAR\narguments: expr (COMMA expr)*\n",
+  "context_checks": true,
+  "version": 1
+}

@@ -1,0 +1,20 @@
+# Test file for RicePy++ parser
+
+int x = 10;
+double y = 3.14;
+string name = "test";
+
+int function add(a: int, b: int)
+{
+    return a + b;
+}
+
+if (x > 5) {
+    y = 20.5;
+} else {
+    y = 0.0;
+};
+
+while (x < 100) {
+    x = x + 1;
+};

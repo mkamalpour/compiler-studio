@@ -1,0 +1,50 @@
+{
+  "name": "MiniCalc · Custom language example",
+  "rules": [
+    {
+      "name": "SPACE",
+      "pattern": "\\s+",
+      "priority": 0,
+      "channel": "skip",
+      "label": ""
+    },
+    {
+      "name": "NUMBER",
+      "pattern": "[0-9]+(?:\\.[0-9]+)?",
+      "priority": 0,
+      "channel": "token",
+      "label": ""
+    },
+    {
+      "name": "PLUS",
+      "pattern": "\\+",
+      "priority": 0,
+      "channel": "token",
+      "label": ""
+    },
+    {
+      "name": "STAR",
+      "pattern": "\\*",
+      "priority": 0,
+      "channel": "token",
+      "label": ""
+    },
+    {
+      "name": "LPAR",
+      "pattern": "\\(",
+      "priority": 0,
+      "channel": "token",
+      "label": ""
+    },
+    {
+      "name": "RPAR",
+      "pattern": "\\)",
+      "priority": 0,
+      "channel": "token",
+      "label": ""
+    }
+  ],
+  "grammar": "start: sum\n?sum: sum PLUS product -> addition\n    | product\n?product: product STAR atom -> multiplication\n        | atom\n?atom: NUMBER -> number\n     | LPAR sum RPAR -> grouped\n",
+  "context_checks": false,
+  "version": 1
+}

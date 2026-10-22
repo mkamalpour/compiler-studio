@@ -1,0 +1,6 @@
+# Assignment 1 token vocabulary: lexically valid, not a complete program.
+for self derives ^ [ ] ( ) { } + - * / % < > <= >= == != && || ! ; . ,
+int double string bool void break continue class return null while if else elif begin end
+true false 022 0XaaFF22 4.1 "hello" hello1 variable_name
+"""Multi-line
+comment"""

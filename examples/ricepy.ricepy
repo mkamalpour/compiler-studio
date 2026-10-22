@@ -1,0 +1,31 @@
+# Generated RicePy++ example
+""" Lexical analysis and grammatical analysis share one token stream. """
+global int count = 0;
+const double scale = 2.5;
+int values[10];
+int* pointer = null;
+
+int function add(left: int, right: int) {
+    return left + right;
+}
+
+class Calculator
+begin
+    int total = 0;
+    int function twice(value: int) {
+        return value * 2;
+    }
+end
+
+while (count < 23) {
+    count = count + 1;
+    if (count == 2) {
+        continue;
+    } elif (count > 20) {
+        break;
+    } else {
+        values[0] = count;
+    };
+};
+
+count := add(count, 0x0A);
