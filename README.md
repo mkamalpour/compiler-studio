@@ -2,8 +2,6 @@
 
 A compiler front end written in Python: a configurable lexer, LALR parser, syntax-tree viewer, and desktop language designer. RicePy++ is the default language, combining the lexical and syntax work from two compiler-design assignments. Define another language without changing Python code.
 
-![Compiler Studio multi-tab workbench](docs/workbench.png)
-
 This replaces the Flex/Bison/C build workflow with Python and Lark. It analyzes source; it does not compile Python programs, execute input, or generate executables.
 
 ## Open the app on Windows
@@ -49,8 +47,6 @@ Exit status: `0` valid, `1` analysis errors, `2` file/setup/timeout errors. CLI 
 
 Shortcuts: F5 / Ctrl+Enter analyze, F6 tokens only, Ctrl+N new tab, Ctrl+O open, Ctrl+S save, Ctrl+Shift+S save as, Ctrl+W close tab, Ctrl+Tab switch tabs, Ctrl+F/F3 find, Tab/Shift+Tab indent. Modified files and language profiles offer Save/Discard/Cancel protection.
 
-![Guided example generator](docs/examples.png)
-
 CSV exports prefix spreadsheet formula-like values with an apostrophe. JSON preserves exact lexemes.
 
 ## Make your own language
@@ -95,6 +91,10 @@ profiles/         editable RicePy++ and MiniCalc definitions
 examples/         valid programs, lexical-only vocabulary and invalid input
 tests/            engine, custom language, CLI, worker and real Tk workflow checks
 ```
+
+`engine.py` implements analysis; `profiles.py` validates and loads language definitions; `worker.py` isolates cancellable jobs. `gui.py` and `friendly_ui.py` provide the desktop workflows; `editor.py` handles source editing. `presentation.py` translates diagnostics and token names into readable UI text without altering compiler reports. `example_library.py` supplies the guided lessons; `samples.py` generates larger seeded programs used by lessons and regression checks. `__main__.py` provides desktop/CLI entry points; `__init__.py` records the app version.
+
+The JSON profiles are editable language examples, not generated caches. `assignment2.ricepy` preserves the original syntax test; `ricepy.ricepy` demonstrates the combined language; `lexical.ricepy` exercises lexer-only vocabulary; `invalid.ricepy` demonstrates errors; `calculator.src` demonstrates a different language. `requirements.txt` pins the runtime dependency, `run.bat` handles Windows setup/launch, and the Git settings keep line endings consistent and local data out of commits. `VERIFICATION.md` records actual checks and their limits.
 
 The source assignments are preserved outside this project. The new repository has no generated C, binaries, private datasets, credentials or copied assignment PDFs. No open-source license has been selected.
 
