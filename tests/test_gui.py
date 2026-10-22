@@ -46,7 +46,7 @@ class GuiTests(unittest.TestCase):
         self.app.run()
         self.wait_for_result()
         self.assertTrue(self.app.result["ok"])
-        self.assertGreater(len(self.app.tokens.get_children()), 50)
+        self.assertGreater(len(self.app.tokens.get_children()), 10)
         self.assertTrue(self.app.tree.get_children())
         self.app.tokens.selection_set("0")
         self.app._select_token()
@@ -167,6 +167,8 @@ class GuiTests(unittest.TestCase):
         self.assertNotIn(second, self.app.documents)
 
     def test_find_token_filter_lazy_tree_and_error_detail(self):
+        from compiler_studio.samples import ricepy_sample
+        self.app._set_source(ricepy_sample(1))
         self.app.run()
         self.wait_for_result()
         self.app.search.set("function")
@@ -282,6 +284,111 @@ class GuiTests(unittest.TestCase):
         self.root.update()
         self.assertIsNone(self.app.result)
         self.assertFalse(self.app.tokens.get_children())
+
+    def test_beginner_defaults_truthful_results_and_optional_technical_names(self):
+        self.assertEqual(self.app.tabs.tab(self.app.language_tab, "state"), "normal")
+        self.assertLess(len(self.app.source.get("1.0", "end-1c").splitlines()), 8)
+        self.app.analyze_button.invoke()
+        self.wait_for_result()
+        self.assertEqual(self.app.outputs.select(), str(self.app.summary_tab))
+        self.assertIn("looks good", self.app.banner_title.get())
+        self.assertEqual(self.app.metrics["parser"].get(), "Passed")
+        self.assertEqual(str(self.app.csv_button["state"]), "normal")
+        integer = next(str(index) for index, token in enumerate(self.app.result["tokens"]) if token["kind"] == "INTEGER")
+        self.assertEqual(self.app.tokens.item(integer, "values")[0], "Whole number")
+        self.app.show_token_names.set(True)
+        self.app._filter_tokens()
+        self.assertEqual(self.app.tokens.item(integer, "values")[0], "INTEGER")
+        self.app.run("lexer")
+        self.wait_for_result()
+        self.assertEqual(self.app.metrics["parser"].get(), "Not checked")
+        self.assertIn("Token check", self.app.banner_title.get())
+
+    def test_examples_preserve_existing_code_and_analyze_the_edited_preview(self):
+        first = self.app.active_document
+        original = first.editor.get("1.0", "end-1c")
+        self.app.example_topic.set("Variables")
+        self.app.refresh_example()
+        self.app.example_preview.insert("end", "\nint previewValue = 123;")
+        self.assertTrue(self.app.open_example(analyze=True))
+        self.wait_for_result()
+        self.assertEqual(first.editor.get("1.0", "end-1c"), original)
+        self.assertEqual(len(self.app.documents), 2)
+        self.assertIn("previewValue", self.app.source.get("1.0", "end-1c"))
+        self.assertTrue(self.app.source_dirty)
+        self.assertTrue(self.app.result["ok"])
+        self.assertEqual(len(self.app.run_history), 1)
+        self.app.source_tabs.select(first.frame)
+        self.root.update()
+        self.assertEqual(len(self.app.run_history), 1)
+
+    def test_example_language_switch_respects_cancel_and_keeps_code(self):
+        self.app.example_language.set("MiniCalc")
+        self.app._example_language_changed()
+        source = self.app.source.get("1.0", "end-1c")
+        with patch("compiler_studio.friendly_ui.messagebox.askyesno", return_value=False):
+            self.assertFalse(self.app.open_example())
+        self.assertEqual(len(self.app.documents), 1)
+        self.assertEqual(self.app.source.get("1.0", "end-1c"), source)
+        with patch("compiler_studio.friendly_ui.messagebox.askyesno", return_value=True):
+            self.assertTrue(self.app.open_example(analyze=True))
+        self.wait_for_result()
+        self.assertTrue(self.app.result["ok"])
+        self.assertEqual(len(self.app.documents), 2)
+
+    def test_clear_is_undoable_empty_check_is_helpful_and_history_clear_keeps_code(self):
+        original = self.app.source.get("1.0", "end-1c")
+        self.app.clear_source()
+        self.assertEqual(self.app.source.get("1.0", "end-1c"), "")
+        self.app.run()
+        self.assertIsNone(self.app.job)
+        self.assertIn("Add some code", self.app.banner_title.get())
+        self.app.source.edit_undo()
+        self.root.update()
+        self.assertEqual(self.app.source.get("1.0", "end-1c"), original)
+        self.app.run()
+        self.wait_for_result()
+        report = self.app.result
+        self.app.clear_history()
+        self.assertFalse(self.app.run_history)
+        self.assertIs(self.app.result, report)
+        self.assertEqual(self.app.source.get("1.0", "end-1c"), original)
+
+    def test_issue_guidance_jump_and_advanced_rules_remain_available(self):
+        self.app._set_source("int value")
+        self.app.run()
+        self.wait_for_result()
+        self.assertEqual(self.app.outputs.select(), str(self.app.issues_tab))
+        self.assertIn("semicolon", self.app.diagnostic_detail.get("1.0", "end"))
+        self.assertNotIn("Expected:", self.app.diagnostic_detail.get("1.0", "end"))
+        self.app.technical_details.set(True)
+        self.app._select_diagnostic()
+        self.assertIn("Expected:", self.app.diagnostic_detail.get("1.0", "end"))
+        self.app.jump_to_problem()
+        self.assertEqual(self.app.source.index("insert"), "1.9")
+        self.app.show_language_settings()
+        self.assertEqual(self.app.tabs.tab(self.app.language_tab, "state"), "normal")
+        self.app.run("validate")
+        self.wait_for_result()
+        self.assertIn("Language settings", self.app.banner_title.get())
+
+    def test_beginner_actions_remain_visible_at_small_window_size(self):
+        self.root.deiconify()
+        self.root.geometry("1000x800")
+        self.app.run()
+        self.wait_for_result()
+        self.root.update()
+        for button in (self.app.report_button, self.app.csv_button, self.app.explore_tokens, self.app.explore_structure):
+            self.assertTrue(button.winfo_ismapped())
+            self.assertGreater(button.winfo_height(), 25)
+            self.assertLessEqual(button.winfo_rooty() + button.winfo_height(), self.app.summary_tab.winfo_rooty() + self.app.summary_tab.winfo_height())
+        self.app.tabs.select(self.app.examples_tab)
+        self.root.update()
+        self.assertIn("not been checked", self.app.banner_detail.get())
+        for widget in (self.app.example_topics, self.app.generate_button):
+            self.assertTrue(widget.winfo_ismapped())
+            self.assertGreater(widget.winfo_height(), 20)
+            self.assertLessEqual(widget.winfo_rooty() + widget.winfo_height(), self.app.examples_tab.winfo_rooty() + self.app.examples_tab.winfo_height())
 
 
 if __name__ == "__main__":

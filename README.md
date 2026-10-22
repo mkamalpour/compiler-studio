@@ -6,7 +6,15 @@ A compiler front end written in Python: a configurable lexer, LALR parser, synta
 
 This replaces the Flex/Bison/C build workflow with Python and Lark. It analyzes source; it does not compile Python programs, execute input, or generate executables.
 
-## Run
+## Open the app on Windows
+
+1. Install **Python 3.11** if it is not already installed, with the PATH option enabled.
+2. Double-click **run.bat**. First launch prepares a local environment and installs the pinned dependency; internet access is needed for this setup. Later launches use the prepared environment.
+3. Click **Analyze code**, or open **Examples**, choose a topic and click **Analyze this example**.
+
+The app starts with four simple lines. No grammar configuration is needed to use the default RicePy++ language. `run.bat --check` verifies the local setup without opening a window. Source files and checks stay local; analysis does not execute the source program.
+
+## Manual setup / CLI
 
 Verified baseline: CPython 3.11.0 on Windows, Tk 8.6, Lark 1.3.1. No C compiler, Flex, Bison, browser, or web server is needed.
 
@@ -15,8 +23,6 @@ python -m venv .venv
 .venv\Scripts\python -m pip install -r requirements.txt
 .venv\Scripts\python -m compiler_studio
 ```
-
-After setup on Windows, double-click `run.bat` to open the desktop app.
 
 On Linux/macOS, use `.venv/bin/python`. The desktop UI needs Tkinter; some Python distributions package Tk separately. CLI analysis works without Tkinter. These platforms have not been verified locally.
 
@@ -33,15 +39,23 @@ Exit status: `0` valid, `1` analysis errors, `2` file/setup/timeout errors. CLI 
 
 ## Desktop workflow
 
-- **Workbench:** open multiple source tabs with independent edits, undo stacks and reports. Use the editor line numbers, current-line highlight, automatic indentation and block Tab/Shift+Tab indentation. Find text with Ctrl+F/F3. Run the complete pipeline (F5), or scan tokens only (F6). Filter tokens by name or value, hide comments, expand syntax-tree branches on demand, and click results to highlight source. Diagnostics include full messages and syntax repair hints. Generate samples in new tabs.
-- **Language designer:** choose RicePy++ or MiniCalc, edit token rules and the grammar, validate (F7), and save/load JSON profiles. Source edits invalidate that document; shared language edits invalidate results in all documents. Analysis is cancellable; reports export to JSON or token CSV.
-- **Guide & history:** in-app grammar instructions, scope, limits and recent run summaries. Ctrl+N creates a source tab, Ctrl+O opens a file in a tab, Ctrl+S saves, Ctrl+Shift+S saves as, Ctrl+W closes, Ctrl+Tab cycles tabs, and Ctrl+Enter runs the pipeline. Modified tabs offer Save/Discard/Cancel when closing. Use the Export menu for JSON and CSV reports.
+- **Analyze:** edit or open files in separate tabs, then choose **Analyze code** for token and grammar checks together. Summary explains the result; Issues offers a repair hint and **Jump to problem**. Tokens uses readable names such as "Whole number", with technical names optional. Structure shows expandable grammar branches. Clear is undoable with Ctrl+Z. Reports save from Summary or the Export menu.
+- **Examples:** generate Variables, Conditions, Loops, Functions, Classes, Arrays & pointers, or a Complete program at Simple, Standard or Advanced difficulty. Preview and edit before opening a new tab. MiniCalc offers small arithmetic examples. Switching an example's language asks before replacing shared settings, and keeps source tabs.
+- **Statistics:** counts and a chart describe the active tab's tokens, with honest stage status and measured engine timings. Token-only checks clearly say grammar was not checked.
+- **History:** up to 50 check summaries for this session. Selecting a row shows its summary; clearing history keeps source and current results. History does not save source files.
+- **Help:** plain-language getting-started steps, common RicePy++ mistakes, save/export guidance and keyboard shortcuts.
+
+**Language settings** is always visible as its own tab; **Customize language** also opens it. The editor supports custom token rules, grammar editing, validation (F7) and saved JSON profiles. Source edits invalidate that document's report; shared language edits invalidate reports in every tab. Analysis remains cancellable and isolated from the UI. An unchecked example preview is never shown as having passed.
+
+Shortcuts: F5 / Ctrl+Enter analyze, F6 tokens only, Ctrl+N new tab, Ctrl+O open, Ctrl+S save, Ctrl+Shift+S save as, Ctrl+W close tab, Ctrl+Tab switch tabs, Ctrl+F/F3 find, Tab/Shift+Tab indent. Modified files and language profiles offer Save/Discard/Cancel protection.
+
+![Guided example generator](docs/examples.png)
 
 CSV exports prefix spreadsheet formula-like values with an apostrophe. JSON preserves exact lexemes.
 
 ## Make your own language
 
-Start with **MiniCalc**. Add a token named `MINUS` with regex `\-`, priority `0`, channel `token`; click **Apply**. In the grammar, extend `sum`:
+Open **Customize language** and start with the **MiniCalc preset**. Add a token named `MINUS` with regex `\-`, priority `0`, channel `token`; click **Apply**. In the grammar, extend `sum`:
 
 ```text
 ?sum: sum PLUS product -> addition
@@ -76,7 +90,7 @@ Strings use double quotes, have no embedded double quotes (including escaped quo
 ## Structure and verification
 
 ```text
-compiler_studio/  profiles, optimized lexer/parser, reusable worker, CLI, tabbed Tk editor
+compiler_studio/  compiler engine, profiles, worker, CLI, editor, guided UI and example library
 profiles/         editable RicePy++ and MiniCalc definitions
 examples/         valid programs, lexical-only vocabulary and invalid input
 tests/            engine, custom language, CLI, worker and real Tk workflow checks

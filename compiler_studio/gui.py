@@ -14,8 +14,10 @@ from tkinter.scrolledtext import ScrolledText
 from .profiles import Profile, ricepy_profile, calculator_profile
 from .worker import AnalysisWorker
 from .editor import CodeEditor
+from .friendly_ui import FriendlyUI
+from .example_library import STARTER
+from .presentation import token_name, STAGES, explain_diagnostic
 
-ROOT = Path(__file__).resolve().parent.parent
 BLUE, INK, MUTED, BG = "#2457d6", "#18243b", "#53647c", "#f3f5fa"
 
 
@@ -44,7 +46,7 @@ class Document:
     result: dict | None = None
 
 
-class Studio:
+class Studio(FriendlyUI):
     @property
     def source(self):
         return self.active_document.editor
@@ -87,7 +89,6 @@ class Studio:
         self.profile_dirty = False
         self.rule_dirty = False
         self.loading = True
-        self.history = []
         self.root.title("Compiler Studio — Python language workbench")
         width = min(1280, self.root.winfo_screenwidth() - 60)
         height = min(900, self.root.winfo_screenheight() - 100)
@@ -98,7 +99,7 @@ class Studio:
         self._build()
         self._load_profile(self.profile)
         self.active_document.title = "RicePy example"
-        self._set_source((ROOT / "examples" / "ricepy.ricepy").read_text(encoding="utf-8"))
+        self._set_source(STARTER)
         self.loading = False
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         for shortcut, callback in [("<F5>", self.run), ("<Control-Return>", self.run),
@@ -133,44 +134,43 @@ class Studio:
         style.configure("Horizontal.TProgressbar", background=BLUE, troughcolor="#e0e7f1", borderwidth=0)
 
     def _build(self):
-        header = tk.Frame(self.root, bg="#14243e", padx=22, pady=13)
+        header = tk.Frame(self.root, bg="#14243e", padx=22, pady=12)
         header.pack(fill="x")
         tk.Label(header, text="Compiler Studio", font=("Segoe UI", 23, "bold"), fg="white", bg="#14243e").pack(side="left")
-        tk.Label(header, text="DEFINE  /  ANALYZE  /  EXPLORE", font=("Segoe UI", 10), fg="#8ddcd4", bg="#14243e").pack(side="right")
-        toolbar = ttk.Frame(self.root, padding=(18, 10, 18, 5))
+        tk.Label(header, text="Check your code. Understand the results.", font=("Segoe UI", 11), fg="#b9dedb", bg="#14243e").pack(side="right")
+        toolbar = ttk.Frame(self.root, padding=(18, 10, 18, 6))
         toolbar.pack(fill="x")
-        for text, command, accent in [
-            ("Run pipeline  F5", self.run, True), ("Lexer only  F6", lambda: self.run("lexer"), False),
-            ("Validate language  F7", lambda: self.run("validate"), False), ("Cancel", self.cancel, False),
-        ]:
-            ttk.Button(toolbar, text=text, command=command, style="Accent.TButton" if accent else "TButton").pack(side="left", padx=3)
-        self.progress = ttk.Progressbar(toolbar, mode="indeterminate", length=90)
-        self.profile_name = tk.StringVar()
-        ttk.Label(toolbar, textvariable=self.profile_name, style="Muted.TLabel").pack(side="right", padx=8)
-        cards = ttk.Frame(self.root, padding=(20, 5, 20, 10))
-        cards.pack(fill="x")
-        self.metrics = {}
-        for column, (key, label) in enumerate([("tokens", "TOKEN STREAM"), ("errors", "DIAGNOSTICS"),
-                                               ("lexer", "LEXICAL ANALYSIS"), ("parser", "SYNTAX ANALYSIS")]):
-            card = ttk.Frame(cards, style="Card.TFrame", padding=(14, 7))
-            card.grid(row=0, column=column, sticky="ew", padx=(0, 8 if column < 3 else 0))
-            cards.columnconfigure(column, weight=1)
-            ttk.Label(card, text=label, style="Card.TLabel").pack(anchor="w")
-            self.metrics[key] = tk.StringVar(value="—")
-            ttk.Label(card, textvariable=self.metrics[key], style="Number.TLabel").pack(anchor="w")
-        self.status = tk.StringVar(value="Ready · open a source tab or run the example with F5")
+        self.analyze_button = ttk.Button(toolbar, text="Analyze code  F5", command=self.run, style="Accent.TButton")
+        self.analyze_button.pack(side="left", padx=3)
+        self.tokens_button = ttk.Button(toolbar, text="Check tokens only  F6", command=lambda: self.run("lexer"))
+        self.tokens_button.pack(side="left", padx=3)
+        ttk.Button(toolbar, text="Try an example", command=lambda: self.tabs.select(self.examples_tab)).pack(side="left", padx=3)
+        self.cancel_button = ttk.Button(toolbar, text="Cancel", command=self.cancel, state="disabled")
+        self.cancel_button.pack(side="left", padx=3)
+        ttk.Button(toolbar, text="Customize language", command=self.show_language_settings).pack(side="right", padx=3)
+        self.progress = ttk.Progressbar(toolbar, mode="indeterminate", length=80)
+        self._build_banner(self.root)
+        self.status = tk.StringVar(value="Ready - click Analyze code to check the example")
         ttk.Label(self.root, textvariable=self.status, padding=(22, 5, 20, 10), style="Muted.TLabel").pack(side="bottom", fill="x")
         self.tabs = ttk.Notebook(self.root)
         self.tabs.pack(fill="both", expand=True, padx=20, pady=(0, 8))
         self.workbench = ttk.Frame(self.tabs, padding=10)
-        self.language_tab = ttk.Frame(self.tabs, padding=10)
+        self.examples_tab = ttk.Frame(self.tabs, padding=14)
+        self.statistics_tab = ttk.Frame(self.tabs, padding=16)
+        self.history_tab = ttk.Frame(self.tabs, padding=16)
         self.guide_tab = ttk.Frame(self.tabs, padding=12)
-        self.tabs.add(self.workbench, text="  Workbench  ")
-        self.tabs.add(self.language_tab, text="  Language designer  ")
-        self.tabs.add(self.guide_tab, text="  Guide & history  ")
+        self.language_tab = ttk.Frame(self.tabs, padding=10)
+        for frame, label in [(self.workbench, "Analyze"), (self.examples_tab, "Examples"),
+                             (self.statistics_tab, "Statistics"), (self.history_tab, "History"),
+                             (self.guide_tab, "Help"), (self.language_tab, "Language settings")]:
+            self.tabs.add(frame, text=label)
         self._workbench()
+        self._build_examples()
+        self._build_statistics()
+        self._build_history()
         self._language_designer()
-        self._guide()
+        self._build_help()
+        self.tabs.bind("<<NotebookTabChanged>>", self._main_tab_changed)
         self._menu()
 
     def _menu(self):
@@ -197,6 +197,11 @@ class Studio:
         export.add_command(label="Analysis JSON...", command=self.export_json)
         export.add_command(label="Token CSV...", command=self.export_csv)
         menu.add_cascade(label="Export", menu=export)
+        tools = tk.Menu(menu, tearoff=False)
+        tools.add_command(label="Language settings (advanced)...", command=self.show_language_settings)
+        tools.add_command(label="Validate language rules", command=lambda: self.run("validate"), accelerator="F7")
+        menu.add_cascade(label="Tools", menu=tools)
+        menu.add_command(label="Help", command=lambda: self.tabs.select(self.guide_tab))
         self.root.configure(menu=menu)
 
     def _workbench(self):
@@ -208,9 +213,8 @@ class Studio:
         source_bar = ttk.Frame(left)
         source_bar.pack(fill="x", pady=(0, 7))
         ttk.Label(source_bar, text="SOURCE", font=("Segoe UI", 10, "bold")).pack(side="left")
-        for text, command in [("New", self.new_document), ("Open", self.open_source), ("Save", self.save_source), ("Close", self.close_document)]:
+        for text, command in [("New", self.new_document), ("Open", self.open_source), ("Save", self.save_source), ("Close", self.close_document), ("Clear", self.clear_source)]:
             ttk.Button(source_bar, text=text, command=command, width=5, padding=(4, 4)).pack(side="left", padx=(5, 0))
-        ttk.Button(source_bar, text="Sample", command=self.generate, width=6, padding=(4, 4)).pack(side="right")
         search = ttk.Frame(left)
         search.pack(fill="x", pady=(0, 7))
         ttk.Label(search, text="Find").pack(side="left")
@@ -233,8 +237,9 @@ class Studio:
         self.outputs.pack(fill="both", expand=True, padx=(10, 0))
         tokens_tab, tree_tab, diagnostics_tab = [ttk.Frame(self.outputs, padding=6) for _ in range(3)]
         self.outputs.add(tokens_tab, text="Tokens")
-        self.outputs.add(tree_tab, text="Syntax tree")
-        self.outputs.add(diagnostics_tab, text="Diagnostics")
+        self.outputs.add(tree_tab, text="Structure")
+        self.outputs.add(diagnostics_tab, text="Issues")
+        self.tokens_tab, self.structure_tab, self.issues_tab = tokens_tab, tree_tab, diagnostics_tab
         self.token_count = tk.StringVar(value="Run analysis to inspect the token stream.")
         ttk.Label(tokens_tab, textvariable=self.token_count, style="Muted.TLabel", wraplength=550).pack(anchor="w", pady=(2, 7))
         filters = ttk.Frame(tokens_tab)
@@ -245,7 +250,12 @@ class Studio:
         self.hide_comments = tk.BooleanVar(value=False)
         ttk.Checkbutton(filters, text="Hide comments", variable=self.hide_comments, command=self._filter_tokens).pack(side="left")
         self.token_filter.trace_add("write", self._schedule_filter)
-        self.tokens = self._table(tokens_tab, ("kind", "value", "location"), ("Token", "Value", "Line:col"), (140, 220, 70))
+        self.tokens = self._table(tokens_tab, ("kind", "value", "location"), ("Type", "Text", "Line:col"), (140, 220, 70))
+        self.show_token_names = tk.BooleanVar(value=False)
+        ttk.Checkbutton(tokens_tab, text="Show technical token names", variable=self.show_token_names,
+                        command=self._filter_tokens).pack(side="bottom", anchor="w", pady=(5, 0))
+        self.tokens.master.pack_forget()
+        self.tokens.master.pack(fill="both", expand=True)
         self.tokens.bind("<<TreeviewSelect>>", self._select_token)
         self.tree_count = tk.StringVar(value="A successful parse produces a syntax tree.")
         ttk.Label(tree_tab, textvariable=self.tree_count, style="Muted.TLabel", wraplength=550).pack(anchor="w", pady=(2, 8))
@@ -255,10 +265,17 @@ class Studio:
         self.tree.bind("<<TreeviewOpen>>", self._tree_open)
         self.diagnostic_detail = ScrolledText(diagnostics_tab, height=6, width=30, wrap="word", font=("Segoe UI", 10),
                                              bg="#eef3fb", fg=INK, relief="flat", padx=10, pady=8, state="disabled")
+        issue_actions = ttk.Frame(diagnostics_tab)
+        issue_actions.pack(side="bottom", fill="x", pady=(6, 0))
+        ttk.Button(issue_actions, text="Jump to problem", command=self.jump_to_problem).pack(side="left")
+        self.technical_details = tk.BooleanVar(value=False)
+        ttk.Checkbutton(issue_actions, text="Technical details", variable=self.technical_details,
+                        command=self._select_diagnostic).pack(side="right")
         self.diagnostic_detail.pack(side="bottom", fill="x", pady=(8, 0))
         self.diagnostics = self._table(diagnostics_tab, ("stage", "location", "message"), ("Stage", "Line:col", "Message"), (75, 65, 330))
         self.diagnostics.bind("<<TreeviewSelect>>", self._select_diagnostic)
         self.tree_locations = {}
+        self._build_summary()
 
     @staticmethod
     def _editor(parent, height=15):
@@ -369,49 +386,6 @@ class Studio:
         context_toggle.pack(side="bottom", anchor="w", padx=10, pady=8)
         horizontal.pack(side="bottom", fill="x")
         self.grammar.pack(fill="both", expand=True)
-
-    def _guide(self):
-        text = ScrolledText(self.guide_tab, wrap="word", font=("Segoe UI", 11), bg="white", fg=INK, relief="flat", padx=18, pady=15)
-        text.pack(fill="both", expand=True)
-        text.insert("1.0", """YOUR COMPILER FRONT END, IN PYTHON
-
-SOURCE → REGEX LEXER → TOKENS → LALR PARSER → SYNTAX TREE → CONTEXT CHECKS
-
-Run pipeline (F5) checks both lexical and grammatical structure. Lexer only (F6) keeps scanning separate from grammar. Validate language (F7) checks your token rules and builds the parser without requiring valid source.
-
-Use Ctrl+N to open another source tab. Each tab keeps its own edits and results. Ctrl+W closes a tab with Save/Discard/Cancel protection. Ctrl+Tab switches tabs. Ctrl+F/F3 searches source. The token filter searches names, labels and values; Hide comments changes only the view.\n\nClick a token, tree node or diagnostic to select its source text. Edits invalidate results immediately. Exports always describe the current source and language. Large results remain complete in JSON; tables display up to 5,000 items.
-
-DESIGNING A LANGUAGE
-
-Start with MiniCalc to experiment. In Language designer, add or select a token rule, edit its regex and click Apply. Add a MINUS token with pattern \\- and extend the sum rule with: | sum MINUS product -> subtraction. Validate, then test 9 - 2 * 3. No Python code changes are required.
-
-Token channels:
-  token — shown in the table and passed to the parser.
-  skip — whitespace or other discarded text.
-  comment — shown in the table, ignored by the parser.
-  error — shown as a lexical diagnostic, preventing a successful parse.
-
-Regexes use Python re syntax. Higher priority wins before match length. Equal priority and length use the first row. Keyword patterns need word boundaries so intValue remains an identifier. Patterns must never match empty text. Unknown characters are errors; nothing is silently dropped.
-
-Syntax rules use Lark's EBNF. Use named tokens from the rule table, not inline literals or regexes. Rule names are lowercase; token names are uppercase. -> alias names a tree branch. Grammar imports/directives and embedded Python actions are disabled. Save profiles as JSON to reuse or share language definitions. LALR conflicts must be resolved by changing the grammar; arbitrary ambiguous grammars are not supported.
-
-RICEPY++ DEFAULT
-
-The default profile follows assignment 2: int function add(a: int, b: int) { return a + b; }, calls such as answer := add(1, 2);, classes using begin/end, and semicolons after if/elif/else and while blocks. It supports pointers, one-dimensional arrays, global and const declarations, arithmetic, comparisons and boolean expressions. break/continue require a loop body. return requires a function.
-
-Assignment 1's full token vocabulary remains available in lexer-only mode, including for, self, derives and ^. These are not syntax extensions in assignment 2. Operators use conventional left/right and less/greater display labels where the old files disagree. Strings have no embedded double quotes or line breaks; comments use # or triple double quotes. // is not a source comment.
-
-SCOPE & LIMITS
-
-This is a compiler front end, not a Python-source compiler or executable-code generator. It does not evaluate source, infer types, resolve symbols, enforce const assignments or run programs. The tree is a concrete syntax tree, preserving punctuation. Lexing reports multiple errors; parsing stops at the first syntax error with expected token names.
-
-Analysis runs in a separate process with a 12-second timeout. Limits: 250,000 source characters, 40,000 visible tokens, 150 syntax-tree levels. Completed runs reuse an isolated worker and parser cache. Cancellation/timeouts replace the worker. A custom pathological regex can time out; cancel or simplify it. Files and profiles stay local. Open/save/export never use network services.
-
-Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · Ctrl+S save
-""")
-        text.configure(state="disabled")
-        self.history_text = tk.StringVar(value="Session history appears after analysis.")
-        ttk.Label(self.guide_tab, textvariable=self.history_text, style="Muted.TLabel", wraplength=1100, padding=(0, 10)).pack(fill="x")
 
     def _cursor(self, event=None):
         line, column = self.source.index("insert").split(".")
@@ -551,6 +525,8 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
         if self.result is not None:
             self.result = None
             self._clear_results()
+        else:
+            self._friendly_clear()
         self.status.set(message)
 
     def _clear_results(self):
@@ -559,7 +535,8 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
         self.tree_locations.clear()
         for tag in ("keyword", "literal", "comment", "problem", "selection_target"):
             self.source.tag_remove(tag, "1.0", "end")
-        self.token_count.set("Results need analysis.")
+        self._friendly_clear()
+        self.token_count.set("Analyze code to explore its words and symbols.")
         self.tree_count.set("No current syntax tree.")
         if hasattr(self, "metrics"):
             for variable in self.metrics.values():
@@ -621,7 +598,7 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
             Profile.from_dict(dict(version=1, name="Validation", rules=rules, grammar="start:"))
         except (ValueError, TypeError) as exc:
             self.language_feedback.set(str(exc))
-            self.tabs.select(self.language_tab)
+            self.show_language_settings()
             return False
         self.rules = rules
         self.rule_table.item(str(self.selected_rule), values=(candidate["name"], candidate["priority"], candidate["channel"]))
@@ -666,7 +643,6 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
         self.profile = profile
         self.rules = profile.to_dict()["rules"]
         self.name.set(profile.name)
-        self.profile_name.set(profile.name)
         self.context.set(profile.context_checks)
         self.grammar.delete("1.0", "end")
         self.grammar.insert("1.0", profile.grammar)
@@ -700,18 +676,7 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
         self._load_profile(ricepy_profile() if name == "ricepy" else calculator_profile())
 
     def generate(self):
-        if self.name.get().startswith("RicePy"):
-            from .samples import ricepy_sample
-            source = ricepy_sample()
-        elif self.name.get().startswith("MiniCalc"):
-            from .samples import calculator_sample
-            source = calculator_sample()
-        else:
-            messagebox.showinfo("Custom language", "Samples are available for the RicePy++ and MiniCalc presets. Use your own source for a custom profile.", parent=self.root)
-            return
-        self.new_document(source, title="Generated sample")
-        self.source_dirty = True
-        self._update_document_title(self.active_document)
+        self.tabs.select(self.examples_tab)
 
     def open_source(self):
         path = filedialog.askopenfilename(parent=self.root, filetypes=[("Source", "*.ricepy *.txt *.src"), ("All files", "*.*")])
@@ -774,16 +739,32 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
         return False
 
     def run(self, mode="pipeline"):
+        if self.job is not None:
+            self.status.set("A check is already running. Cancel it to stop.")
+            return
+        if mode == "validate":
+            self.show_language_settings()
+        elif not self.source.get("1.0", "end-1c").strip():
+            self._source_changed()
+            self._clear_results()
+            self._set_banner("Add some code first", "Type a few lines, open a file, or choose a ready-made example.")
+            self.summary_title.set("Nothing to check yet")
+            self.summary_text.set("Examples can create a small program for you. Open one, then click Analyze code.")
+            self.tabs.select(self.workbench)
+            self.outputs.select(self.summary_tab)
+            return
         try:
             self.root.focus_set()
             self.root.update_idletasks()
             profile = self.current_profile()
             self.invalidate("Analyzing… · editing source or language cancels this run")
             self._clear_results()
-            self.profile_name.set(profile.name)
             self.job = self.worker.submit(self.source.get("1.0", "end-1c"), profile, mode)
             self.progress.pack(side="right", padx=6)
             self.progress.start(12)
+            self._busy(True)
+            self._set_banner("Checking language settings..." if mode == "validate" else "Checking your code...",
+                             "You can cancel this check at any time. Your code will not be executed.")
             self.poll_id = self.root.after(40, self._poll)
         except (ValueError, OSError) as exc:
             self._file_error(exc)
@@ -796,6 +777,8 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
             result = self.job.poll()
         except (RuntimeError, TimeoutError, OSError) as exc:
             self.job = None
+            self._busy(False)
+            self._set_banner("The check could not finish", str(exc), "warning")
             self.progress.stop()
             self.progress.pack_forget()
             self.status.set(str(exc))
@@ -805,6 +788,7 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
             self.poll_id = self.root.after(40, self._poll)
             return
         self.job = None
+        self._busy(False)
         self.progress.stop()
         self.progress.pack_forget()
         self.progress["value"] = 0
@@ -812,6 +796,7 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
         self._render(result)
 
     def cancel(self, silent=False):
+        self._busy(False)
         if hasattr(self, "progress"):
             self.progress.stop()
             self.progress.pack_forget()
@@ -823,18 +808,21 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
             self.job.close()
             self.job = None
             if not silent:
-                self.status.set("Analysis cancelled")
+                self.status.set("Check cancelled. Your code is safe.")
+                self._set_banner("Check cancelled", "Your code has not been changed. Choose Analyze code when you are ready.")
 
     def _render(self, result, record_history=True):
         self._clear_results()
         tokens = result["tokens"]
+        source_text = self.source.get("1.0", "end-1c")
         self._filter_tokens()
         for token in tokens[:5000]:
             tag = "comment" if token["channel"] == "comment" else "keyword" if token["label"] == "keyword" else "literal" if "literal" in token["label"] else None
             if tag:
                 self.source.tag_add(tag, f"1.0+{token['offset']}c", f"1.0+{token['end']}c")
         for index, diagnostic in enumerate(result["diagnostics"][:5000]):
-            self.diagnostics.insert("", "end", iid=str(index), values=(diagnostic["stage"], f"{diagnostic['line']}:{diagnostic['column']}", diagnostic["message"]))
+            message, _ = explain_diagnostic(diagnostic, source_text)
+            self.diagnostics.insert("", "end", iid=str(index), values=(STAGES.get(diagnostic["stage"], diagnostic["stage"]), f"{diagnostic['line']}:{diagnostic['column']}", message))
             if diagnostic["stage"] != "configuration":
                 self.source.tag_add("problem", f"1.0+{diagnostic['offset']}c", f"1.0+{max(diagnostic['offset'] + 1, diagnostic['end'])}c")
         if result["tree"]:
@@ -850,19 +838,16 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
             self.language_feedback.set("Language ready · token rules and LALR grammar are valid." if result["ok"] else result["diagnostics"][0]["message"][:500])
         outcome = "VALID" if result["ok"] else f"{len(result['diagnostics'])} ERROR(S)"
         self.status.set(f"{outcome} · {result['mode']} · {len(tokens):,} tokens · {result['timings']['total_ms']:.1f} ms engine time")
-        if record_history:
-            self.history.append(self.active_document.title + " · " + self.status.get())
-            self.history = self.history[-5:]
-            self.history_text.set("RECENT RUNS\n" + "\n".join(reversed(self.history)))
+        self._friendly_report(result, record_history)
         if result["diagnostics"]:
-            self.outputs.select(2)
+            self.outputs.select(self.issues_tab)
             if result["mode"] != "validate":
                 self.tabs.select(self.workbench)
             self.diagnostics.selection_set("0")
             self._select_diagnostic()
         elif result["mode"] != "validate":
             self.tabs.select(self.workbench)
-            self.outputs.select(0)
+            self.outputs.select(self.summary_tab)
 
     def _set_detail(self, text):
         self.diagnostic_detail.configure(state="normal")
@@ -892,7 +877,7 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
             matched += 1
             if shown < 5000:
                 value = token["value"].replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
-                self.tokens.insert("", "end", iid=str(index), values=(token["kind"], value[:250], f"{token['line']}:{token['column']}"))
+                self.tokens.insert("", "end", iid=str(index), values=(token["kind"] if self.show_token_names.get() else token_name(token), value[:250], f"{token['line']}:{token['column']}"))
                 shown += 1
         total = len(self.result["tokens"])
         self.token_count.set(f"{matched:,} of {total:,} tokens" + (" · first 5,000 matches shown" if matched > 5000 else " · click to locate source"))
@@ -941,7 +926,11 @@ Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5
         selected = self.diagnostics.selection()
         if selected and self.result:
             record = self.result["diagnostics"][int(selected[0])]
-            self._set_detail(f"{record['code']} · {record['stage']} · {record['line']}:{record['column']}\n{record['message']}\n\n{record.get('hint', '')}")
+            message, hint = explain_diagnostic(record, self.source.get("1.0", "end-1c"))
+            detail = f"Line {record['line']}, column {record['column']}\n{message}\n\nWhat to try: {hint}" if hint else message
+            if self.technical_details.get():
+                detail += f"\n\nTechnical details ({record['code']}):\n{record['message']}"
+            self._set_detail(detail)
             if record["stage"] != "configuration":
                 self._highlight(record)
 
