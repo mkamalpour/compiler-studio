@@ -1,8 +1,11 @@
 import json
 from pathlib import Path
 import unittest
+import random
+from unittest.mock import patch
 
 from compiler_studio.engine import analyze, compile_profile, MAX_SOURCE
+from compiler_studio.engine import ScannerPlan
 from compiler_studio.profiles import Profile, Rule, ricepy_profile, calculator_profile
 from compiler_studio.samples import ricepy_sample, calculator_sample
 
@@ -156,6 +159,38 @@ class EngineTests(unittest.TestCase):
             self.assertEqual(source[token["offset"]:token["end"]], token["value"])
             self.assertTrue(not source[last:token["offset"]].strip())
             last = token["end"]
+
+    def test_optimized_scanner_matches_exhaustive_matching(self):
+        rng = random.Random(7)
+        alphabet = 'abc01_ +-*/:=<>!&|()[]{}.;#"\\\n\té'
+        samples = [ricepy_sample(4), 'intValue := f(0xFF, 12.3);', '0x12G 2. _bad "oops']
+        samples += ["".join(rng.choice(alphabet) for _ in range(100)) for _ in range(100)]
+        for text in samples:
+            optimized = self.analyze(text, "lexer")
+            with patch.object(ScannerPlan, "candidates", lambda plan, char: plan.rules):
+                exhaustive = self.analyze(text, "lexer")
+            self.assertEqual(optimized["tokens"], exhaustive["tokens"])
+            self.assertEqual(optimized["diagnostics"], exhaustive["diagnostics"])
+        # Optional prefixes, alternatives, flags and backreferences must remain general.
+        for pattern in [r"a?b", r"a*b", r"a{0,2}b", r"a|b", r"(?i)a", r"(a)\1", r"\w+", r"(?=a)"]:
+            profile = Profile("Custom", (Rule("CUSTOM", pattern),), "start: CUSTOM")
+            for text in ["a", "b", "aa", "A"]:
+                optimized = analyze(text, profile, "lexer")
+                with patch.object(ScannerPlan, "candidates", lambda plan, char: plan.rules):
+                    exhaustive = analyze(text, profile, "lexer")
+                self.assertEqual(optimized["tokens"], exhaustive["tokens"])
+                self.assertEqual(optimized["diagnostics"], exhaustive["diagnostics"])
+
+    def test_syntax_error_includes_structured_expected_tokens_and_hint(self):
+        diagnostic = self.analyze("int value\n")["diagnostics"][0]
+        self.assertIn("SEMI", diagnostic["expected"])
+        self.assertIn("semicolon", diagnostic["hint"])
+
+    def test_custom_grammar_context_alias_mismatch_reports_configuration_error(self):
+        profile = Profile("Custom", (Rule("NUMBER", r"[0-9]+"),), "start: return_statement\nreturn_statement: NUMBER", True)
+        report = analyze("5", profile)
+        self.assertFalse(report["ok"])
+        self.assertEqual(report["diagnostics"][0]["code"], "C003")
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """Tk desktop workbench. Source and language profiles stay local."""
 
 import csv
+from dataclasses import dataclass
 import json
 import os
 from pathlib import Path
@@ -11,7 +12,8 @@ from tkinter import ttk, filedialog, messagebox
 from tkinter.scrolledtext import ScrolledText
 
 from .profiles import Profile, ricepy_profile, calculator_profile
-from .worker import Job
+from .worker import AnalysisWorker
+from .editor import CodeEditor
 
 ROOT = Path(__file__).resolve().parent.parent
 BLUE, INK, MUTED, BG = "#2457d6", "#18243b", "#53647c", "#f3f5fa"
@@ -32,16 +34,56 @@ def atomic_write(path, text):
             temporary.unlink()
 
 
+@dataclass
+class Document:
+    frame: object
+    editor: object
+    title: str
+    path: str | None = None
+    dirty: bool = False
+    result: dict | None = None
+
+
 class Studio:
+    @property
+    def source(self):
+        return self.active_document.editor
+
+    @property
+    def source_path(self):
+        return self.active_document.path if self.active_document else None
+
+    @source_path.setter
+    def source_path(self, value):
+        self.active_document.path = value
+
+    @property
+    def source_dirty(self):
+        return self.active_document.dirty if self.active_document else False
+
+    @source_dirty.setter
+    def source_dirty(self, value):
+        self.active_document.dirty = value
+
+    @property
+    def result(self):
+        return self.active_document.result if self.active_document else None
+
+    @result.setter
+    def result(self, value):
+        self.active_document.result = value
+
     def __init__(self, root):
         self.root = root
         self.profile = ricepy_profile()
         self.rules = [dict(item) for item in self.profile.to_dict()["rules"]]
         self.job = None
         self.poll_id = None
-        self.result = None
-        self.source_path = None
-        self.source_dirty = False
+        self.documents = []
+        self.active_document = None
+        self.document_serial = 0
+        self.worker = AnalysisWorker()
+        self.filter_id = None
         self.profile_dirty = False
         self.rule_dirty = False
         self.loading = True
@@ -55,12 +97,16 @@ class Studio:
         self._style()
         self._build()
         self._load_profile(self.profile)
+        self.active_document.title = "RicePy example"
         self._set_source((ROOT / "examples" / "ricepy.ricepy").read_text(encoding="utf-8"))
         self.loading = False
         self.root.protocol("WM_DELETE_WINDOW", self.close)
         for shortcut, callback in [("<F5>", self.run), ("<Control-Return>", self.run),
                                    ("<F6>", lambda: self.run("lexer")), ("<F7>", lambda: self.run("validate")),
-                                   ("<Control-o>", self.open_source), ("<Control-s>", self.save_source)]:
+                                   ("<Control-o>", self.open_source), ("<Control-s>", self.save_source),
+                                   ("<Control-n>", self.new_document), ("<Control-w>", self.close_document),
+                                   ("<Control-f>", self.focus_find), ("<F3>", self.find_next),
+                                   ("<Control-Shift-S>", lambda: self.save_source(save_as=True))]:
             self.root.bind(shortcut, lambda event, cb=callback: (cb(), "break")[1])
 
     def _style(self):
@@ -78,66 +124,111 @@ class Studio:
         style.configure("Treeview.Heading", font=("Segoe UI", 10, "bold"), padding=6)
         style.configure("Title.TLabel", font=("Segoe UI", 24, "bold"))
         style.configure("Muted.TLabel", foreground=MUTED)
+        style.configure("Card.TFrame", background="white")
+        style.configure("Card.TLabel", background="white", foreground=MUTED, font=("Segoe UI", 9))
+        style.configure("Number.TLabel", background="white", foreground=INK, font=("Segoe UI", 16, "bold"))
+        style.configure("TNotebook.Tab", padding=(14, 8))
+        style.configure("Treeview.Heading", background="#e8eef8", foreground="#344c70")
+        style.map("Treeview", background=[("selected", "#dce9ff")], foreground=[("selected", "#17366b")])
+        style.configure("Horizontal.TProgressbar", background=BLUE, troughcolor="#e0e7f1", borderwidth=0)
 
     def _build(self):
-        header = ttk.Frame(self.root, padding=(22, 16, 22, 10))
+        header = tk.Frame(self.root, bg="#14243e", padx=22, pady=13)
         header.pack(fill="x")
-        ttk.Label(header, text="Compiler Studio", style="Title.TLabel").pack(side="left")
-        ttk.Label(header, text="PYTHON  /  LEXER + PARSER", style="Muted.TLabel").pack(side="right")
-        subtitle = ttk.Frame(self.root, padding=(23, 0, 22, 12))
-        subtitle.pack(fill="x")
-        ttk.Label(subtitle, text="Define a language. Inspect every token. Understand its structure.", style="Muted.TLabel").pack(side="left")
-        self.profile_name = tk.StringVar()
-        ttk.Label(subtitle, textvariable=self.profile_name, foreground=BLUE).pack(side="right")
-        toolbar = ttk.Frame(self.root, padding=(18, 0, 18, 12))
+        tk.Label(header, text="Compiler Studio", font=("Segoe UI", 23, "bold"), fg="white", bg="#14243e").pack(side="left")
+        tk.Label(header, text="DEFINE  /  ANALYZE  /  EXPLORE", font=("Segoe UI", 10), fg="#8ddcd4", bg="#14243e").pack(side="right")
+        toolbar = ttk.Frame(self.root, padding=(18, 10, 18, 5))
         toolbar.pack(fill="x")
-        for index, (text, command, accent) in enumerate([
+        for text, command, accent in [
             ("Run pipeline  F5", self.run, True), ("Lexer only  F6", lambda: self.run("lexer"), False),
             ("Validate language  F7", lambda: self.run("validate"), False), ("Cancel", self.cancel, False),
-            ("Open source", self.open_source, False), ("Save source", self.save_source, False),
-            ("Export report", self.export_json, False), ("Export tokens", self.export_csv, False),
-        ]):
-            ttk.Button(toolbar, text=text, command=command, style="Accent.TButton" if accent else "TButton").grid(row=index // 4, column=index % 4, sticky="ew", padx=3, pady=2)
-        for column in range(4):
-            toolbar.columnconfigure(column, weight=1)
+        ]:
+            ttk.Button(toolbar, text=text, command=command, style="Accent.TButton" if accent else "TButton").pack(side="left", padx=3)
+        self.progress = ttk.Progressbar(toolbar, mode="indeterminate", length=90)
+        self.profile_name = tk.StringVar()
+        ttk.Label(toolbar, textvariable=self.profile_name, style="Muted.TLabel").pack(side="right", padx=8)
+        cards = ttk.Frame(self.root, padding=(20, 5, 20, 10))
+        cards.pack(fill="x")
+        self.metrics = {}
+        for column, (key, label) in enumerate([("tokens", "TOKEN STREAM"), ("errors", "DIAGNOSTICS"),
+                                               ("lexer", "LEXICAL ANALYSIS"), ("parser", "SYNTAX ANALYSIS")]):
+            card = ttk.Frame(cards, style="Card.TFrame", padding=(14, 7))
+            card.grid(row=0, column=column, sticky="ew", padx=(0, 8 if column < 3 else 0))
+            cards.columnconfigure(column, weight=1)
+            ttk.Label(card, text=label, style="Card.TLabel").pack(anchor="w")
+            self.metrics[key] = tk.StringVar(value="—")
+            ttk.Label(card, textvariable=self.metrics[key], style="Number.TLabel").pack(anchor="w")
+        self.status = tk.StringVar(value="Ready · open a source tab or run the example with F5")
+        ttk.Label(self.root, textvariable=self.status, padding=(22, 5, 20, 10), style="Muted.TLabel").pack(side="bottom", fill="x")
         self.tabs = ttk.Notebook(self.root)
-        self.tabs.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        self.tabs.pack(fill="both", expand=True, padx=20, pady=(0, 8))
         self.workbench = ttk.Frame(self.tabs, padding=10)
         self.language_tab = ttk.Frame(self.tabs, padding=10)
         self.guide_tab = ttk.Frame(self.tabs, padding=12)
-        self.tabs.add(self.workbench, text="Workbench")
-        self.tabs.add(self.language_tab, text="Language designer")
-        self.tabs.add(self.guide_tab, text="Guide & history")
+        self.tabs.add(self.workbench, text="  Workbench  ")
+        self.tabs.add(self.language_tab, text="  Language designer  ")
+        self.tabs.add(self.guide_tab, text="  Guide & history  ")
         self._workbench()
         self._language_designer()
         self._guide()
-        self.status = tk.StringVar(value="Ready · F5 analyzes source; F6 scans tokens only")
-        self.tabs.pack_forget()
-        ttk.Label(self.root, textvariable=self.status, padding=(22, 5, 20, 12), style="Muted.TLabel").pack(side="bottom", fill="x")
-        self.tabs.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        self._menu()
+
+    def _menu(self):
+        menu = tk.Menu(self.root)
+        file = tk.Menu(menu, tearoff=False)
+        for label, callback, shortcut in [
+            ("New source tab", self.new_document, "Ctrl+N"), ("Open source...", self.open_source, "Ctrl+O"),
+            ("Save", self.save_source, "Ctrl+S"), ("Save as...", lambda: self.save_source(save_as=True), "Ctrl+Shift+S"),
+            ("Close source tab", self.close_document, "Ctrl+W"),
+        ]:
+            file.add_command(label=label, command=callback, accelerator=shortcut)
+        file.add_separator()
+        file.add_command(label="Export analysis JSON...", command=self.export_json)
+        file.add_command(label="Export token CSV...", command=self.export_csv)
+        file.add_separator()
+        file.add_command(label="Exit", command=self.close)
+        menu.add_cascade(label="File", menu=file)
+        edit = tk.Menu(menu, tearoff=False)
+        edit.add_command(label="Undo", command=lambda: self.source.event_generate("<<Undo>>"), accelerator="Ctrl+Z")
+        edit.add_command(label="Redo", command=lambda: self.source.event_generate("<<Redo>>"), accelerator="Ctrl+Y")
+        edit.add_command(label="Find", command=self.focus_find, accelerator="Ctrl+F")
+        menu.add_cascade(label="Edit", menu=edit)
+        export = tk.Menu(menu, tearoff=False)
+        export.add_command(label="Analysis JSON...", command=self.export_json)
+        export.add_command(label="Token CSV...", command=self.export_csv)
+        menu.add_cascade(label="Export", menu=export)
+        self.root.configure(menu=menu)
 
     def _workbench(self):
         split = ttk.Panedwindow(self.workbench, orient="horizontal")
         split.pack(fill="both", expand=True)
         left, right = ttk.Frame(split), ttk.Frame(split)
-        split.add(left, weight=5)
+        split.add(left, weight=6)
         split.add(right, weight=6)
         source_bar = ttk.Frame(left)
-        source_bar.pack(fill="x", pady=(0, 8))
-        self.file_label = tk.StringVar(value="SOURCE / untitled")
-        ttk.Label(source_bar, textvariable=self.file_label, font=("Segoe UI", 11, "bold")).pack(side="left")
-        ttk.Button(source_bar, text="Generate sample", command=self.generate).pack(side="right", padx=5)
-        self.source = self._editor(left)
-        self.source.bind("<<Modified>>", self._source_changed)
-        self.source.tag_configure("keyword", foreground="#2457b5")
-        self.source.tag_configure("literal", foreground="#8a286e")
-        self.source.tag_configure("comment", foreground="#557260")
-        self.source.tag_configure("problem", background="#ffe3e5", underline=True)
-        self.source.tag_configure("selection_target", background="#dbe8ff")
-        self.source.bind("<KeyRelease>", self._cursor)
-        self.source.bind("<ButtonRelease-1>", self._cursor)
+        source_bar.pack(fill="x", pady=(0, 7))
+        ttk.Label(source_bar, text="SOURCE", font=("Segoe UI", 10, "bold")).pack(side="left")
+        for text, command in [("New", self.new_document), ("Open", self.open_source), ("Save", self.save_source), ("Close", self.close_document)]:
+            ttk.Button(source_bar, text=text, command=command, width=5, padding=(4, 4)).pack(side="left", padx=(5, 0))
+        ttk.Button(source_bar, text="Sample", command=self.generate, width=6, padding=(4, 4)).pack(side="right")
+        search = ttk.Frame(left)
+        search.pack(fill="x", pady=(0, 7))
+        ttk.Label(search, text="Find").pack(side="left")
+        self.search = tk.StringVar()
+        self.search_entry = ttk.Entry(search, textvariable=self.search, width=18)
+        self.search_entry.pack(side="left", fill="x", expand=True, padx=6)
+        self.search_entry.bind("<Return>", lambda event: self.find_next())
+        ttk.Button(search, text="Next  F3", command=self.find_next, padding=(6, 3)).pack(side="left")
         self.cursor = tk.StringVar(value="Line 1, column 1")
-        ttk.Label(left, textvariable=self.cursor, style="Muted.TLabel", padding=5).pack(anchor="w")
+        self.file_label = tk.StringVar(value="Untitled")
+        footer = ttk.Frame(left)
+        footer.pack(side="bottom", fill="x")
+        ttk.Label(footer, textvariable=self.cursor, style="Muted.TLabel", padding=4).pack(side="left")
+        self.source_tabs = ttk.Notebook(left)
+        self.source_tabs.pack(fill="both", expand=True)
+        self.source_tabs.enable_traversal()
+        self.new_document()
+        self.source_tabs.bind("<<NotebookTabChanged>>", self._document_selected)
         self.outputs = ttk.Notebook(right)
         self.outputs.pack(fill="both", expand=True, padx=(10, 0))
         tokens_tab, tree_tab, diagnostics_tab = [ttk.Frame(self.outputs, padding=6) for _ in range(3)]
@@ -145,21 +236,33 @@ class Studio:
         self.outputs.add(tree_tab, text="Syntax tree")
         self.outputs.add(diagnostics_tab, text="Diagnostics")
         self.token_count = tk.StringVar(value="Run analysis to inspect the token stream.")
-        ttk.Label(tokens_tab, textvariable=self.token_count, style="Muted.TLabel", wraplength=520).pack(anchor="w", pady=(2, 8))
-        self.tokens = self._table(tokens_tab, ("kind", "value", "location"), ("Token", "Value", "Line:col"), (145, 250, 70))
+        ttk.Label(tokens_tab, textvariable=self.token_count, style="Muted.TLabel", wraplength=550).pack(anchor="w", pady=(2, 7))
+        filters = ttk.Frame(tokens_tab)
+        filters.pack(fill="x", pady=(0, 7))
+        ttk.Label(filters, text="Filter").pack(side="left")
+        self.token_filter = tk.StringVar()
+        ttk.Entry(filters, textvariable=self.token_filter, width=18).pack(side="left", fill="x", expand=True, padx=6)
+        self.hide_comments = tk.BooleanVar(value=False)
+        ttk.Checkbutton(filters, text="Hide comments", variable=self.hide_comments, command=self._filter_tokens).pack(side="left")
+        self.token_filter.trace_add("write", self._schedule_filter)
+        self.tokens = self._table(tokens_tab, ("kind", "value", "location"), ("Token", "Value", "Line:col"), (140, 220, 70))
         self.tokens.bind("<<TreeviewSelect>>", self._select_token)
-        self.tree_count = tk.StringVar(value="A successful parse produces a concrete syntax tree.")
-        ttk.Label(tree_tab, textvariable=self.tree_count, style="Muted.TLabel", wraplength=520).pack(anchor="w", pady=(2, 8))
+        self.tree_count = tk.StringVar(value="A successful parse produces a syntax tree.")
+        ttk.Label(tree_tab, textvariable=self.tree_count, style="Muted.TLabel", wraplength=550).pack(anchor="w", pady=(2, 8))
         self.tree = self._table(tree_tab, (), (), (), tree=True)
-        self.tree.heading("#0", text="Grammar rule / token")
+        self.tree.heading("#0", text="Grammar rule / token · expand a branch to explore")
         self.tree.bind("<<TreeviewSelect>>", self._select_tree)
-        self.diagnostics = self._table(diagnostics_tab, ("stage", "location", "message"), ("Stage", "Line:col", "Message"), (85, 70, 380))
+        self.tree.bind("<<TreeviewOpen>>", self._tree_open)
+        self.diagnostic_detail = ScrolledText(diagnostics_tab, height=6, width=30, wrap="word", font=("Segoe UI", 10),
+                                             bg="#eef3fb", fg=INK, relief="flat", padx=10, pady=8, state="disabled")
+        self.diagnostic_detail.pack(side="bottom", fill="x", pady=(8, 0))
+        self.diagnostics = self._table(diagnostics_tab, ("stage", "location", "message"), ("Stage", "Line:col", "Message"), (75, 65, 330))
         self.diagnostics.bind("<<TreeviewSelect>>", self._select_diagnostic)
         self.tree_locations = {}
 
     @staticmethod
     def _editor(parent, height=15):
-        editor = ScrolledText(parent, wrap="none", undo=True, font=("Consolas", 11),
+        editor = CodeEditor(parent, wrap="none", undo=True, font=("Consolas", 11),
                               bg="white", fg=INK, insertbackground=INK, relief="flat", borderwidth=1,
                               padx=12, pady=10, height=height, width=30, tabs=(32,))
         editor.pack(fill="both", expand=True)
@@ -198,6 +301,8 @@ class Studio:
                                 ("MiniCalc preset", lambda: self.preset("calculator")),
                                 ("Open profile", self.open_profile), ("Save profile", self.save_profile)]:
             ttk.Button(bar, text=label, command=callback).pack(side="left", padx=3)
+        self.language_feedback = tk.StringVar(value="Edit token rules and grammar, then validate with F7.")
+        ttk.Label(self.language_tab, textvariable=self.language_feedback, style="Muted.TLabel", wraplength=1000, padding=(0, 5)).pack(side="bottom", fill="x")
         split = ttk.Panedwindow(self.language_tab, orient="horizontal")
         split.pack(fill="both", expand=True)
         left, right = ttk.Frame(split), ttk.Frame(split)
@@ -210,24 +315,36 @@ class Studio:
         self.rule_table.bind("<<TreeviewSelect>>", self._rule_selected)
         form = ttk.Frame(left, padding=(0, 8))
         form.pack(fill="x")
-        form.columnconfigure(1, weight=1)
+        form.columnconfigure(1, weight=3)
+        form.columnconfigure(5, weight=1)
         self.fields = {}
-        for row, (key, label) in enumerate([("name", "Token name"), ("pattern", "Regex pattern"),
-                                           ("priority", "Priority"), ("channel", "Channel"), ("label", "Display / error label")]):
-            ttk.Label(form, text=label).grid(row=row, column=0, sticky="w", padx=(0, 8), pady=3)
+        layouts = [
+            ("name", "Name", 0, 0, 1, 1),
+            ("priority", "Priority", 0, 2, 3, 1),
+            ("channel", "Channel", 0, 4, 5, 1),
+            ("pattern", "Regex", 1, 0, 1, 5),
+            ("label", "Label / error", 2, 0, 1, 5),
+        ]
+        for key, label, row, label_col, field_col, span in layouts:
+            ttk.Label(form, text=label).grid(row=row, column=label_col, sticky="w", padx=(0, 6), pady=4)
             value = tk.StringVar()
             self.fields[key] = value
             value.trace_add("write", lambda *_: self._field_changed())
-            widget = ttk.Combobox(form, textvariable=value, values=("token", "skip", "comment", "error"), state="readonly") if key == "channel" else ttk.Entry(form, textvariable=value)
-            widget.grid(row=row, column=1, sticky="ew", pady=3)
+            if key == "channel":
+                widget = ttk.Combobox(form, textvariable=value, values=("token", "skip", "comment", "error"), width=8, state="readonly")
+            elif key == "priority":
+                widget = ttk.Spinbox(form, textvariable=value, from_=-100, to=100, width=4)
+            else:
+                widget = ttk.Entry(form, textvariable=value, width=12 if key == "name" else 1)
+            widget.grid(row=row, column=field_col, columnspan=span, sticky="ew", padx=(0, 5), pady=4)
         self.selected_rule = None
         self.form_loading = False
         buttons = ttk.Frame(left)
         buttons.pack(fill="x")
-        for label, callback in [("Apply rule", self.apply_rule), ("Add rule", self.add_rule), ("Delete rule", self.delete_rule)]:
-            ttk.Button(buttons, text=label, command=callback).pack(side="left", padx=(0, 5))
+        for label, callback in [("Apply", self.apply_rule), ("Add", self.add_rule), ("Delete", self.delete_rule)]:
+            ttk.Button(buttons, text=label, command=callback, width=7).pack(side="left", padx=(0, 5))
         for text, direction in [("Up", -1), ("Down", 1)]:
-            ttk.Button(buttons, text=text, command=lambda delta=direction: self.move_rule(delta)).pack(side="left", padx=(0, 4))
+            ttk.Button(buttons, text=text, width=5, command=lambda delta=direction: self.move_rule(delta)).pack(side="left", padx=(0, 4))
         # Reserve the rule form before giving remaining height to the token list.
         # Otherwise a small/high-DPI window can push Apply/Add/Delete offscreen.
         self.rule_table.master.pack_forget()
@@ -262,11 +379,11 @@ SOURCE → REGEX LEXER → TOKENS → LALR PARSER → SYNTAX TREE → CONTEXT CH
 
 Run pipeline (F5) checks both lexical and grammatical structure. Lexer only (F6) keeps scanning separate from grammar. Validate language (F7) checks your token rules and builds the parser without requiring valid source.
 
-Click a token, tree node or diagnostic to select its source text. Edits invalidate results immediately. Exports always describe the current source and language. Large results remain complete in JSON; tables display up to 5,000 items.
+Use Ctrl+N to open another source tab. Each tab keeps its own edits and results. Ctrl+W closes a tab with Save/Discard/Cancel protection. Ctrl+Tab switches tabs. Ctrl+F/F3 searches source. The token filter searches names, labels and values; Hide comments changes only the view.\n\nClick a token, tree node or diagnostic to select its source text. Edits invalidate results immediately. Exports always describe the current source and language. Large results remain complete in JSON; tables display up to 5,000 items.
 
 DESIGNING A LANGUAGE
 
-Start with MiniCalc to experiment. In Language designer, add or select a token rule, edit its regex and click Apply rule. Add a MINUS token with pattern \\- and extend the sum rule with: | sum MINUS product -> subtraction. Validate, then test 9 - 2 * 3. No Python code changes are required.
+Start with MiniCalc to experiment. In Language designer, add or select a token rule, edit its regex and click Apply. Add a MINUS token with pattern \\- and extend the sum rule with: | sum MINUS product -> subtraction. Validate, then test 9 - 2 * 3. No Python code changes are required.
 
 Token channels:
   token — shown in the table and passed to the parser.
@@ -288,9 +405,9 @@ SCOPE & LIMITS
 
 This is a compiler front end, not a Python-source compiler or executable-code generator. It does not evaluate source, infer types, resolve symbols, enforce const assignments or run programs. The tree is a concrete syntax tree, preserving punctuation. Lexing reports multiple errors; parsing stops at the first syntax error with expected token names.
 
-Analysis runs in a separate process with a 12-second timeout. Limits: 250,000 source characters, 40,000 visible tokens, 150 syntax-tree levels. A custom pathological regex can time out; cancel or simplify it. Files and profiles stay local. Open/save/export never use network services.
+Analysis runs in a separate process with a 12-second timeout. Limits: 250,000 source characters, 40,000 visible tokens, 150 syntax-tree levels. Completed runs reuse an isolated worker and parser cache. Cancellation/timeouts replace the worker. A custom pathological regex can time out; cancel or simplify it. Files and profiles stay local. Open/save/export never use network services.
 
-Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · Ctrl+S save
+Keyboard: Ctrl+N new tab · Ctrl+W close tab · Ctrl+F find · F3 next match\nF5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · Ctrl+S save
 """)
         text.configure(state="disabled")
         self.history_text = tk.StringVar(value="Session history appears after analysis.")
@@ -300,12 +417,111 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
         line, column = self.source.index("insert").split(".")
         self.cursor.set(f"Line {line}, column {int(column) + 1}")
 
-    def _source_changed(self, event=None):
-        if self.source.edit_modified():
-            self.source.edit_modified(False)
+    def new_document(self, text="", path=None, title=None):
+        self.document_serial += 1
+        frame = ttk.Frame(self.source_tabs)
+        editor = self._editor(frame)
+        document = Document(frame, editor, title or (Path(path).name if path else f"Untitled {self.document_serial}"), path)
+        self.documents.append(document)
+        self.source_tabs.add(frame, text=document.title)
+        self.active_document = document
+        editor.bind("<<Modified>>", lambda event, doc=document: self._document_changed(doc))
+        for tag, options in {
+            "keyword": dict(foreground="#2457b5"), "literal": dict(foreground="#8a286e"),
+            "comment": dict(foreground="#557260"), "problem": dict(background="#ffe3e5", underline=True),
+            "selection_target": dict(background="#dbe8ff"), "search_match": dict(background="#ffecad"),
+        }.items():
+            editor.tag_configure(tag, **options)
+        editor.bind("<KeyRelease>", self._cursor, add=True)
+        editor.bind("<ButtonRelease-1>", self._cursor, add=True)
+        editor.insert("1.0", text)
+        editor.mark_set("insert", "1.0")
+        editor.edit_modified(False)
+        editor.edit_reset()
+        self.source_tabs.select(frame)
+        if hasattr(self, "outputs"):
+            self.cancel(silent=True)
+            self._clear_results()
+            self._update_document_title(document)
+            self.status.set("New source tab · F5 runs the active document")
+            self.tabs.select(self.workbench)
+            editor.focus_set()
+        return document
+
+    def _update_document_title(self, document):
+        title = Path(document.path).name if document.path else document.title
+        self.source_tabs.tab(document.frame, text=("* " if document.dirty else "") + title)
+        if document is self.active_document:
+            self.file_label.set(document.path or title)
+
+    def _document_changed(self, document):
+        if document.editor.edit_modified():
+            document.editor.edit_modified(False)
             if not self.loading:
-                self.source_dirty = True
-                self.invalidate("Source changed · run analysis to refresh results")
+                document.dirty = True
+                self._update_document_title(document)
+                if document is self.active_document:
+                    self.invalidate("Source changed · run analysis to refresh results")
+                else:
+                    document.result = None
+
+    def _source_changed(self, event=None):
+        self._document_changed(self.active_document)
+
+    def _document_selected(self, event=None):
+        selected = self.source_tabs.select()
+        document = next((doc for doc in self.documents if str(doc.frame) == selected), None)
+        if document is None or document is self.active_document:
+            return
+        self.cancel(silent=True)
+        self.active_document = document
+        self._update_document_title(document)
+        self._clear_results()
+        if document.result is not None:
+            self._render(document.result, record_history=False)
+        else:
+            self.status.set("Ready · analyze this document with F5")
+        self._cursor()
+        self.source.focus_set()
+
+    def close_document(self):
+        self._source_changed()
+        if not self._discard_source():
+            return False
+        self.cancel(silent=True)
+        document = self.active_document
+        index = self.documents.index(document)
+        self.documents.remove(document)
+        self.source_tabs.forget(document.frame)
+        document.frame.destroy()
+        self.active_document = None
+        if not self.documents:
+            self.new_document()
+        else:
+            self.source_tabs.select(self.documents[min(index, len(self.documents) - 1)].frame)
+            self._document_selected()
+        return True
+
+    def focus_find(self):
+        self.tabs.select(self.workbench)
+        self.search_entry.focus_set()
+        self.search_entry.selection_range(0, "end")
+
+    def find_next(self):
+        text = self.search.get()
+        self.source.tag_remove("search_match", "1.0", "end")
+        if not text:
+            return
+        start = self.source.search(text, "insert+1c", stopindex="end", nocase=True)
+        if not start:
+            start = self.source.search(text, "1.0", stopindex="end", nocase=True)
+        if start:
+            self.source.tag_add("search_match", start, start + f"+{len(text)}c")
+            self.source.mark_set("insert", start)
+            self.source.see(start)
+            self.status.set("Match found · F3 finds the next match")
+        else:
+            self.status.set("No match in this source tab")
 
     def _grammar_changed(self, event=None):
         if self.grammar.edit_modified():
@@ -315,7 +531,15 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
     def _profile_changed(self):
         if not self.loading:
             self.profile_dirty = True
-            self.invalidate("Language changed · validate or run the pipeline")
+            self.language_feedback.set("Language edited · validate with F7 when ready")
+            self._invalidate_language("Language changed · all source tabs need fresh analysis")
+
+    def _invalidate_language(self, message):
+        self.cancel(silent=True)
+        for document in self.documents:
+            document.result = None
+        self._clear_results()
+        self.status.set(message)
 
     def _field_changed(self):
         if not self.loading and not getattr(self, "form_loading", True):
@@ -337,15 +561,21 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
             self.source.tag_remove(tag, "1.0", "end")
         self.token_count.set("Results need analysis.")
         self.tree_count.set("No current syntax tree.")
+        if hasattr(self, "metrics"):
+            for variable in self.metrics.values():
+                variable.set("—")
+        if hasattr(self, "diagnostic_detail"):
+            self._set_detail("Select a diagnostic to see its full message and repair hint.")
 
     def _set_source(self, source, path=None):
         self.source.delete("1.0", "end")
         self.source.insert("1.0", source)
+        self.source.mark_set("insert", "1.0")
         self.source.edit_modified(False)
         self.source.edit_reset()
         self.source_path = path
         self.source_dirty = False
-        self.file_label.set("SOURCE / " + (Path(path).name if path else "untitled"))
+        self._update_document_title(self.active_document)
         self.invalidate("Ready · run pipeline or inspect tokens")
 
     def _refresh_rules(self, index=0):
@@ -390,7 +620,8 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
             rules[self.selected_rule] = candidate
             Profile.from_dict(dict(version=1, name="Validation", rules=rules, grammar="start:"))
         except (ValueError, TypeError) as exc:
-            messagebox.showerror("Token rule", str(exc), parent=self.root)
+            self.language_feedback.set(str(exc))
+            self.tabs.select(self.language_tab)
             return False
         self.rules = rules
         self.rule_table.item(str(self.selected_rule), values=(candidate["name"], candidate["priority"], candidate["channel"]))
@@ -425,7 +656,7 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
 
     def current_profile(self):
         if self.rule_dirty and not self.apply_rule():
-            raise ValueError("Correct the selected token rule before continuing.")
+            raise ValueError(self.language_feedback.get())
         return Profile.from_dict(dict(version=1, name=self.name.get(), rules=self.rules,
                                      grammar=self.grammar.get("1.0", "end-1c"), context_checks=self.context.get()))
 
@@ -444,13 +675,24 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
         self._refresh_rules()
         self.profile_dirty = False
         self.loading = previous
-        self.invalidate("Language loaded · existing results cleared")
+        self.language_feedback.set("Edit token rules and grammar, then validate with F7.")
+        self._invalidate_language("Language loaded · all source tabs need fresh analysis")
 
     def _discard_source(self):
-        return not self.source_dirty or messagebox.askyesno("Unsaved source", "Discard unsaved source edits?", parent=self.root)
+        if not self.source_dirty:
+            return True
+        answer = messagebox.askyesnocancel("Unsaved source", f"Save changes to {self.active_document.title} before closing?", parent=self.root)
+        if answer is None:
+            return False
+        return self.save_source() if answer else True
 
     def _discard_profile(self):
-        return not self.profile_dirty or messagebox.askyesno("Unsaved language", "Discard unsaved language edits?", parent=self.root)
+        if not self.profile_dirty:
+            return True
+        answer = messagebox.askyesnocancel("Unsaved language", "Save language edits before replacing or closing this profile?", parent=self.root)
+        if answer is None:
+            return False
+        return self.save_profile() if answer else True
 
     def preset(self, name):
         if not self._discard_profile():
@@ -458,8 +700,6 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
         self._load_profile(ricepy_profile() if name == "ricepy" else calculator_profile())
 
     def generate(self):
-        if not self._discard_source():
-            return
         if self.name.get().startswith("RicePy"):
             from .samples import ricepy_sample
             source = ricepy_sample()
@@ -469,32 +709,46 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
         else:
             messagebox.showinfo("Custom language", "Samples are available for the RicePy++ and MiniCalc presets. Use your own source for a custom profile.", parent=self.root)
             return
-        self._set_source(source)
+        self.new_document(source, title="Generated sample")
+        self.source_dirty = True
+        self._update_document_title(self.active_document)
 
     def open_source(self):
-        if not self._discard_source():
-            return
         path = filedialog.askopenfilename(parent=self.root, filetypes=[("Source", "*.ricepy *.txt *.src"), ("All files", "*.*")])
         if path:
             try:
                 if Path(path).stat().st_size > 1_000_000:
                     raise ValueError("Source file exceeds 1 MB.")
                 content = Path(path).read_text(encoding="utf-8-sig")
-                self._set_source(content, path)
+                existing = next((doc for doc in self.documents if doc.path and Path(doc.path).resolve() == Path(path).resolve()), None)
+                if existing:
+                    self.source_tabs.select(existing.frame)
+                    self._document_selected()
+                else:
+                    self.new_document(content, path=path)
             except (OSError, UnicodeError, ValueError) as exc:
                 self._file_error(exc)
 
-    def save_source(self):
-        path = filedialog.asksaveasfilename(parent=self.root, defaultextension=".ricepy", initialfile=Path(self.source_path).name if self.source_path else "program.ricepy")
-        if path:
-            try:
-                atomic_write(path, self.source.get("1.0", "end-1c"))
-                self.source_path = path
-                self.source_dirty = False
-                self.file_label.set("SOURCE / " + Path(path).name)
-                self.status.set("Source saved")
-            except (OSError, UnicodeError) as exc:
-                self._file_error(exc)
+    def save_source(self, save_as=False):
+        path = None if save_as else self.source_path
+        if not path:
+            path = filedialog.asksaveasfilename(parent=self.root, defaultextension=".ricepy", initialfile=Path(self.source_path).name if self.source_path else "program.ricepy")
+        if not path:
+            return False
+        try:
+            if any(doc is not self.active_document and doc.path and Path(doc.path).resolve() == Path(path).resolve() for doc in self.documents):
+                raise ValueError("This file is already open in another tab. Save to a different path.")
+            atomic_write(path, self.source.get("1.0", "end-1c"))
+            self.source_path = path
+            self.active_document.title = Path(path).name
+            self.source_dirty = False
+            self.source.edit_modified(False)
+            self._update_document_title(self.active_document)
+            self.status.set("Source saved")
+            return True
+        except (OSError, UnicodeError, ValueError) as exc:
+            self._file_error(exc)
+            return False
 
     def open_profile(self):
         if not self._discard_profile():
@@ -514,8 +768,10 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
                 atomic_write(path, profile.to_json() + "\n")
                 self.profile_dirty = False
                 self.status.set("Language profile saved")
+                return True
         except (OSError, UnicodeError, ValueError) as exc:
             self._file_error(exc)
+        return False
 
     def run(self, mode="pipeline"):
         try:
@@ -525,7 +781,9 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
             self.invalidate("Analyzing… · editing source or language cancels this run")
             self._clear_results()
             self.profile_name.set(profile.name)
-            self.job = Job(self.source.get("1.0", "end-1c"), profile, mode)
+            self.job = self.worker.submit(self.source.get("1.0", "end-1c"), profile, mode)
+            self.progress.pack(side="right", padx=6)
+            self.progress.start(12)
             self.poll_id = self.root.after(40, self._poll)
         except (ValueError, OSError) as exc:
             self._file_error(exc)
@@ -538,6 +796,8 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
             result = self.job.poll()
         except (RuntimeError, TimeoutError, OSError) as exc:
             self.job = None
+            self.progress.stop()
+            self.progress.pack_forget()
             self.status.set(str(exc))
             messagebox.showerror("Analysis", str(exc), parent=self.root)
             return
@@ -545,10 +805,17 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
             self.poll_id = self.root.after(40, self._poll)
             return
         self.job = None
+        self.progress.stop()
+        self.progress.pack_forget()
+        self.progress["value"] = 0
         self.result = result
         self._render(result)
 
     def cancel(self, silent=False):
+        if hasattr(self, "progress"):
+            self.progress.stop()
+            self.progress.pack_forget()
+            self.progress["value"] = 0
         if self.poll_id is not None:
             self.root.after_cancel(self.poll_id)
             self.poll_id = None
@@ -558,45 +825,101 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
             if not silent:
                 self.status.set("Analysis cancelled")
 
-    def _render(self, result):
+    def _render(self, result, record_history=True):
         self._clear_results()
         tokens = result["tokens"]
-        for index, token in enumerate(tokens[:5000]):
-            value = token["value"].replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
-            self.tokens.insert("", "end", iid=str(index), values=(token["kind"], value[:250], f"{token['line']}:{token['column']}"))
+        self._filter_tokens()
+        for token in tokens[:5000]:
             tag = "comment" if token["channel"] == "comment" else "keyword" if token["label"] == "keyword" else "literal" if "literal" in token["label"] else None
             if tag:
                 self.source.tag_add(tag, f"1.0+{token['offset']}c", f"1.0+{token['end']}c")
-        self.token_count.set(f"{len(tokens):,} tokens · comments shown, whitespace skipped" + (" · first 5,000 displayed" if len(tokens) > 5000 else ""))
         for index, diagnostic in enumerate(result["diagnostics"][:5000]):
             self.diagnostics.insert("", "end", iid=str(index), values=(diagnostic["stage"], f"{diagnostic['line']}:{diagnostic['column']}", diagnostic["message"]))
             if diagnostic["stage"] != "configuration":
                 self.source.tag_add("problem", f"1.0+{diagnostic['offset']}c", f"1.0+{max(diagnostic['offset'] + 1, diagnostic['end'])}c")
         if result["tree"]:
-            pending = [("", result["tree"], 0)]
-            count = 0
-            while pending and count < 5000:
-                parent, node, depth = pending.pop()
-                label = node["kind"] + (f"  {node['value']}" if node["value"] is not None else "")
-                iid = self.tree.insert(parent, "end", text=label[:240], open=depth < 3)
-                self.tree_locations[iid] = node
-                pending.extend((iid, child, depth + 1) for child in reversed(node["children"]))
-                count += 1
-            self.tree_count.set(f"{count:,} tree nodes displayed" + (" · display capped at 5,000; JSON contains the full tree" if pending else " · click a node to locate its source"))
+            root = self._insert_tree("", result["tree"], open_node=True)
+            self._expand_tree(root)
         else:
-            self.tree_count.set("Lexer-only and language-validation modes do not produce a tree." if result["mode"] != "pipeline" else "Fix the reported error to build a syntax tree.")
+            self.tree_count.set("This mode does not produce a tree." if result["mode"] != "pipeline" else "Fix the reported error to build a syntax tree.")
+        self.metrics["tokens"].set(f"{len(tokens):,}")
+        self.metrics["errors"].set(str(len(result["diagnostics"])))
+        self.metrics["lexer"].set(f"{result['timings']['lexer_ms']:.1f} ms" if "lexer_ms" in result["timings"] else "—")
+        self.metrics["parser"].set(f"{result['timings']['parser_ms']:.1f} ms" if "parser_ms" in result["timings"] else "—")
+        if result["mode"] == "validate":
+            self.language_feedback.set("Language ready · token rules and LALR grammar are valid." if result["ok"] else result["diagnostics"][0]["message"][:500])
         outcome = "VALID" if result["ok"] else f"{len(result['diagnostics'])} ERROR(S)"
         self.status.set(f"{outcome} · {result['mode']} · {len(tokens):,} tokens · {result['timings']['total_ms']:.1f} ms engine time")
-        self.history.append(self.status.get())
-        self.history = self.history[-5:]
-        self.history_text.set("RECENT RUNS\n" + "\n".join(reversed(self.history)))
+        if record_history:
+            self.history.append(self.active_document.title + " · " + self.status.get())
+            self.history = self.history[-5:]
+            self.history_text.set("RECENT RUNS\n" + "\n".join(reversed(self.history)))
         if result["diagnostics"]:
             self.outputs.select(2)
-            if result["diagnostics"][0]["stage"] != "configuration":
+            if result["mode"] != "validate":
                 self.tabs.select(self.workbench)
+            self.diagnostics.selection_set("0")
+            self._select_diagnostic()
         elif result["mode"] != "validate":
             self.tabs.select(self.workbench)
             self.outputs.select(0)
+
+    def _set_detail(self, text):
+        self.diagnostic_detail.configure(state="normal")
+        self.diagnostic_detail.delete("1.0", "end")
+        self.diagnostic_detail.insert("1.0", text)
+        self.diagnostic_detail.configure(state="disabled")
+
+    def _schedule_filter(self, *_):
+        if self.filter_id is not None:
+            self.root.after_cancel(self.filter_id)
+        self.filter_id = self.root.after(140, self._filter_tokens)
+
+    def _filter_tokens(self):
+        if self.filter_id is not None:
+            self.root.after_cancel(self.filter_id)
+            self.filter_id = None
+        self.tokens.delete(*self.tokens.get_children())
+        if self.result is None:
+            return
+        query = self.token_filter.get().casefold()
+        matched, shown = 0, 0
+        for index, token in enumerate(self.result["tokens"]):
+            if self.hide_comments.get() and token["channel"] == "comment":
+                continue
+            if query and not any(query in str(token[key]).casefold() for key in ("kind", "label", "value")):
+                continue
+            matched += 1
+            if shown < 5000:
+                value = token["value"].replace("\r", "\\r").replace("\n", "\\n").replace("\t", "\\t")
+                self.tokens.insert("", "end", iid=str(index), values=(token["kind"], value[:250], f"{token['line']}:{token['column']}"))
+                shown += 1
+        total = len(self.result["tokens"])
+        self.token_count.set(f"{matched:,} of {total:,} tokens" + (" · first 5,000 matches shown" if matched > 5000 else " · click to locate source"))
+
+    def _insert_tree(self, parent, node, open_node=False):
+        label = node["kind"] + (f"  {node['value']}" if node["value"] is not None else "")
+        iid = self.tree.insert(parent, "end", text=label[:240], open=open_node)
+        self.tree_locations[iid] = node
+        if node["children"]:
+            self.tree.insert(iid, "end", text="Expand to load…", tags=("placeholder",))
+        return iid
+
+    def _tree_open(self, event=None):
+        self._expand_tree(self.tree.focus())
+
+    def _expand_tree(self, iid):
+        if iid not in self.tree_locations:
+            return
+        children = self.tree.get_children(iid)
+        if children and "placeholder" in self.tree.item(children[0], "tags"):
+            self.tree.delete(*children)
+            for child in self.tree_locations[iid]["children"]:
+                if len(self.tree_locations) >= 5000:
+                    self.tree.insert(iid, "end", text="Display limit reached · export JSON for the complete tree")
+                    break
+                self._insert_tree(iid, child)
+        self.tree_count.set(f"{len(self.tree_locations):,} nodes loaded · expand branches to explore")
 
     def _highlight(self, record):
         self.source.tag_remove("selection_target", "1.0", "end")
@@ -618,6 +941,7 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
         selected = self.diagnostics.selection()
         if selected and self.result:
             record = self.result["diagnostics"][int(selected[0])]
+            self._set_detail(f"{record['code']} · {record['stage']} · {record['line']}:{record['column']}\n{record['message']}\n\n{record.get('hint', '')}")
             if record["stage"] != "configuration":
                 self._highlight(record)
 
@@ -662,9 +986,18 @@ Keyboard: F5 / Ctrl+Enter pipeline · F6 lexer · F7 validate · Ctrl+O open · 
         messagebox.showerror("Compiler Studio", str(exc), parent=self.root)
 
     def close(self):
-        if not self._discard_source() or not self._discard_profile():
+        if not self._discard_profile():
             return
+        for document in list(self.documents):
+            self.source_tabs.select(document.frame)
+            self._document_selected()
+            self._source_changed()
+            if not self._discard_source():
+                return
         self.cancel(silent=True)
+        self.worker.close()
+        if self.filter_id is not None:
+            self.root.after_cancel(self.filter_id)
         self.root.destroy()
 
 

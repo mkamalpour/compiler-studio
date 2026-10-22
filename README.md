@@ -2,6 +2,8 @@
 
 A compiler front end written in Python: a configurable lexer, LALR parser, syntax-tree viewer, and desktop language designer. RicePy++ is the default language, combining the lexical and syntax work from two compiler-design assignments. Define another language without changing Python code.
 
+![Compiler Studio multi-tab workbench](docs/workbench.png)
+
 This replaces the Flex/Bison/C build workflow with Python and Lark. It analyzes source; it does not compile Python programs, execute input, or generate executables.
 
 ## Run
@@ -31,15 +33,15 @@ Exit status: `0` valid, `1` analysis errors, `2` file/setup/timeout errors. CLI 
 
 ## Desktop workflow
 
-- **Workbench:** edit source, run the complete pipeline (F5), or scan tokens only (F6). Inspect tokens, concrete syntax tree and diagnostics. Click an item to highlight its source. Generate sample programs or load/save source files.
-- **Language designer:** choose RicePy++ or MiniCalc, edit token rules and the grammar, validate (F7), and save/load JSON profiles. Source and language edits immediately invalidate old results. Analysis is cancellable; reports export to JSON or token CSV.
-- **Guide & history:** in-app grammar instructions, scope, limits and recent run summaries. Ctrl+O opens source; Ctrl+S saves; Ctrl+Enter runs the pipeline.
+- **Workbench:** open multiple source tabs with independent edits, undo stacks and reports. Use the editor line numbers, current-line highlight, automatic indentation and block Tab/Shift+Tab indentation. Find text with Ctrl+F/F3. Run the complete pipeline (F5), or scan tokens only (F6). Filter tokens by name or value, hide comments, expand syntax-tree branches on demand, and click results to highlight source. Diagnostics include full messages and syntax repair hints. Generate samples in new tabs.
+- **Language designer:** choose RicePy++ or MiniCalc, edit token rules and the grammar, validate (F7), and save/load JSON profiles. Source edits invalidate that document; shared language edits invalidate results in all documents. Analysis is cancellable; reports export to JSON or token CSV.
+- **Guide & history:** in-app grammar instructions, scope, limits and recent run summaries. Ctrl+N creates a source tab, Ctrl+O opens a file in a tab, Ctrl+S saves, Ctrl+Shift+S saves as, Ctrl+W closes, Ctrl+Tab cycles tabs, and Ctrl+Enter runs the pipeline. Modified tabs offer Save/Discard/Cancel when closing. Use the Export menu for JSON and CSV reports.
 
 CSV exports prefix spreadsheet formula-like values with an apostrophe. JSON preserves exact lexemes.
 
 ## Make your own language
 
-Start with **MiniCalc**. Add a token named `MINUS` with regex `\-`, priority `0`, channel `token`; click **Apply rule**. In the grammar, extend `sum`:
+Start with **MiniCalc**. Add a token named `MINUS` with regex `\-`, priority `0`, channel `token`; click **Apply**. In the grammar, extend `sum`:
 
 ```text
 ?sum: sum PLUS product -> addition
@@ -74,7 +76,7 @@ Strings use double quotes, have no embedded double quotes (including escaped quo
 ## Structure and verification
 
 ```text
-compiler_studio/  profile schema, lexer/parser engine, process isolation, CLI, Tk UI
+compiler_studio/  profiles, optimized lexer/parser, reusable worker, CLI, tabbed Tk editor
 profiles/         editable RicePy++ and MiniCalc definitions
 examples/         valid programs, lexical-only vocabulary and invalid input
 tests/            engine, custom language, CLI, worker and real Tk workflow checks
@@ -83,5 +85,7 @@ tests/            engine, custom language, CLI, worker and real Tk workflow chec
 The source assignments are preserved outside this project. The new repository has no generated C, binaries, private datasets, credentials or copied assignment PDFs. No open-source license has been selected.
 
 Analysis is bounded to 250,000 characters, 40,000 displayed-channel tokens, and 150 tree levels, with a 12-second process timeout. UI tables cap display at 5,000 items; JSON retains the complete permitted result. Lexing reports multiple errors; syntax parsing reports the first unexpected token and expected alternatives. Invalid lexing prevents syntax success. Language validation checks the rule schema and parser construction; regex conflicts and intended language behavior still need example tests.
+
+The scanner conservatively dispatches rules by required first character while preserving priority, longest-match and row-order semantics. Complex regexes use exhaustive candidate matching. The desktop reuses one isolated worker and its parser cache between completed runs; cancellation or timeout discards that process, and the next run starts a clean one. CLI jobs remain single-use. The local 9,000-token benchmark improved from 206.6 ms to 111.3 ms median total engine time (seven warm runs per version); this is a local measurement, not a universal speed guarantee.
 
 Context checks are specific to the RicePy tree aliases and should be disabled for unrelated custom profiles. There is no symbol resolution, type checking, constant-assignment enforcement, optimizer, runtime, or machine-code backend. Custom pathological regexes can time out. The timeout isolates a job; it is not an operating-system memory sandbox. Exports contain source lexemes; review them before sharing. See `VERIFICATION.md` for checks actually run.

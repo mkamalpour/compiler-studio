@@ -16,6 +16,43 @@ MAX_TOKENS = 40_000
 MAX_TREE_DEPTH = 150
 
 
+def leading_character(pattern):
+    """Conservatively recognize a required first literal, never guess regex sets.
+
+    Alternation, optional prefixes and regex flags fall back to all positions.
+    This optimization does not combine patterns or change backreference numbers.
+    """
+    if not pattern or "|" in pattern:
+        return None
+    first = pattern[0]
+    length = 1
+    if first == "\\":
+        if len(pattern) < 2 or pattern[1].isalnum():
+            return None
+        first, length = pattern[1], 2
+    elif first in ".^$*+?{[()":
+        return None
+    if len(pattern) > length and pattern[length] in "?*{":
+        return None
+    return first
+
+
+class ScannerPlan:
+    """Cache candidate rules by first character, retaining original rule order."""
+
+    def __init__(self, rules):
+        self.rules = tuple((rule, re.compile(rule.pattern)) for rule in rules)
+        prefixes = [leading_character(rule.pattern) for rule in rules]
+        self.fallback = tuple(pair for pair, prefix in zip(self.rules, prefixes) if prefix is None)
+        self.buckets = {
+            char: tuple(pair for pair, prefix in zip(self.rules, prefixes) if prefix is None or prefix == char)
+            for char in set(prefixes) - {None}
+        }
+
+    def candidates(self, char):
+        return self.buckets.get(char, self.fallback)
+
+
 class TokenStreamLexer(LarkLexer):
     """Lark receives our already-scanned tokens through its interactive API."""
 
@@ -28,7 +65,7 @@ class TokenStreamLexer(LarkLexer):
 
 @lru_cache(maxsize=8)
 def compile_profile(profile, parse=True):
-    rules = tuple((rule, re.compile(rule.pattern)) for rule in profile.rules)
+    rules = ScannerPlan(profile.rules)
     parser = None
     if parse:
         declarations = "\n%declare " + " ".join(rule.name for rule in profile.rules)
@@ -49,8 +86,10 @@ def analyze(source, profile, mode="pipeline"):
     diagnostics = result["diagnostics"]
 
     def error(stage, code, message, offset=0, end=None, line=1, column=1):
-        diagnostics.append(dict(stage=stage, code=code, message=message, offset=offset,
-                                end=offset if end is None else end, line=line, column=column))
+        diagnostic = dict(stage=stage, code=code, message=message, offset=offset,
+                          end=offset if end is None else end, line=line, column=column)
+        diagnostics.append(diagnostic)
+        return diagnostic
 
     def finish():
         result["ok"] = not diagnostics
@@ -84,7 +123,7 @@ def analyze(source, profile, mode="pipeline"):
     lex_start = time.perf_counter()
     while pos < len(source):
         best_rule, best_match = None, None
-        for rule, pattern in rules:
+        for rule, pattern in rules.candidates(source[pos]):
             match = pattern.match(source, pos)
             if match is not None:
                 if match.end() == pos:
@@ -107,7 +146,7 @@ def analyze(source, profile, mode="pipeline"):
             result["tokens"].append(record)
             if best_rule.channel == "error":
                 error("lexer", "L002", best_rule.label or f"Invalid {best_rule.name}.", pos, end, line, column)
-            elif best_rule.channel == "token":
+            elif best_rule.channel == "token" and mode != "lexer":
                 end_line, end_column = location(end)
                 parser_tokens.append(Token(best_rule.name, source[pos:end], start_pos=pos, line=line,
                                            column=column, end_pos=end, end_line=end_line, end_column=end_column))
@@ -132,8 +171,18 @@ def analyze(source, profile, mode="pipeline"):
         line, column = location(offset)
         expected = ", ".join(sorted(exc.expected))
         actual = "end of source" if eof else f"{token.type} {str(token)!r}"
-        error("parser", "P001", f"Unexpected {actual}. Expected: {expected}.", offset,
-              offset if eof else token.end_pos, line, column)
+        diagnostic = error("parser", "P001", f"Unexpected {actual}. Expected: {expected}.", offset,
+                           offset if eof else token.end_pos, line, column)
+        diagnostic["expected"] = sorted(exc.expected)
+        if "SEMI" in exc.expected:
+            hint = "Check for a missing semicolon (;) at the end of the previous statement or control block."
+        elif "RPAR" in exc.expected:
+            hint = "Check matching parentheses and the arguments or condition before this position."
+        elif "RBRACE" in exc.expected or "END" in exc.expected:
+            hint = "Check that each opened block or class has its closing delimiter."
+        else:
+            hint = "Compare this position with the active language grammar and the expected token names."
+        diagnostic["hint"] = hint
         return finish()
     result["timings"]["parser_ms"] = round((time.perf_counter() - parse_start) * 1000, 3)
     if profile.context_checks:
@@ -154,7 +203,11 @@ def _check_context(root, error):
         name = str(node.data)
         if name in {"break_statement", "continue_statement", "return_statement"}:
             if (name == "return_statement" and not functions) or (name != "return_statement" and not loops):
-                token = next(child for child in node.children if isinstance(child, Token))
+                token = next((child for child in node.children if isinstance(child, Token)), None)
+                required = {"break_statement": "BREAK", "continue_statement": "CONTINUE", "return_statement": "RETURN"}[name]
+                if token is None or token.type != required:
+                    error("configuration", "C003", "RicePy context checks require the original control-statement aliases and tokens. Disable these checks for a different custom grammar.")
+                    continue
                 needed = "a function" if name == "return_statement" else "a loop body"
                 error("context", "S001", f"{str(token)} is only valid inside {needed}.",
                       token.start_pos, token.end_pos, token.line, token.column)

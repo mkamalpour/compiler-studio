@@ -29,6 +29,9 @@ class GuiTests(unittest.TestCase):
     def tearDown(self):
         if hasattr(self, "app"):
             self.app.cancel(silent=True)
+            self.app.worker.close()
+            if self.app.filter_id is not None:
+                self.root.after_cancel(self.app.filter_id)
             self.root.destroy()
 
     def wait_for_result(self):
@@ -131,6 +134,154 @@ class GuiTests(unittest.TestCase):
         self.assertTrue(buttons)
         for button in buttons:
             self.assertLess(button.winfo_rooty() + button.winfo_height(), self.root.winfo_rooty() + self.root.winfo_height())
+
+    def test_source_tabs_preserve_independent_edits_and_results(self):
+        first = self.app.active_document
+        self.app.run()
+        self.wait_for_result()
+        report = first.result
+        second = self.app.new_document("int other = 4;", title="Second")
+        self.root.update()
+        self.assertIsNone(self.app.result)
+        self.app.run()
+        self.wait_for_result()
+        self.assertTrue(self.app.result["ok"])
+        self.app.source.insert("end", "\n@")
+        self.root.update()
+        self.assertTrue(second.dirty)
+        self.assertIsNone(second.result)
+        self.app.source_tabs.select(first.frame)
+        self.root.update()
+        self.assertIs(self.app.result, report)
+        self.assertTrue(self.app.tokens.get_children())
+        self.app.name.set("Changed shared language")
+        self.assertTrue(all(doc.result is None for doc in self.app.documents))
+        self.app.source_tabs.select(second.frame)
+        self.root.update()
+        self.assertIn("@", self.app.source.get("1.0", "end"))
+        with patch("compiler_studio.gui.messagebox.askyesnocancel", return_value=None):
+            self.assertFalse(self.app.close_document())
+        self.assertIn(second, self.app.documents)
+        with patch("compiler_studio.gui.messagebox.askyesnocancel", return_value=False):
+            self.assertTrue(self.app.close_document())
+        self.assertNotIn(second, self.app.documents)
+
+    def test_find_token_filter_lazy_tree_and_error_detail(self):
+        self.app.run()
+        self.wait_for_result()
+        self.app.search.set("function")
+        self.app.find_next()
+        self.assertTrue(self.app.source.tag_ranges("search_match"))
+        self.app.token_filter.set("WHILE")
+        self.app._filter_tokens()
+        self.assertEqual(len(self.app.tokens.get_children()), 1)
+        self.app.tokens.selection_set(self.app.tokens.get_children()[0])
+        self.app._select_token()
+        self.assertEqual(self.app.source.get(*self.app.source.tag_ranges("selection_target")), "while")
+        root = self.app.tree.get_children()[0]
+        child = next(iid for iid in self.app.tree.get_children(root)
+                     if self.app.tree_locations[iid]["children"])
+        before = len(self.app.tree_locations)
+        self.app._expand_tree(child)
+        self.assertGreater(len(self.app.tree_locations), before)
+        self.app._set_source("int value")
+        self.app.run()
+        self.wait_for_result()
+        self.assertIn("semicolon", self.app.diagnostic_detail.get("1.0", "end"))
+
+    def test_open_preserves_other_tabs_and_save_cancel_keeps_dirty_document(self):
+        first = self.app.active_document
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "second.ricepy")
+            Path(path).write_text("int x;", encoding="utf-8")
+            with patch("compiler_studio.gui.filedialog.askopenfilename", return_value=path):
+                self.app.open_source()
+            self.root.update()
+            second = self.app.active_document
+            self.assertIsNot(first, second)
+            self.app.source.insert("end", "\nint y;")
+            self.root.update()
+            with patch("compiler_studio.gui.filedialog.askopenfilename", return_value=path):
+                self.app.open_source()
+            self.assertEqual(len(self.app.documents), 2)
+            self.assertIn("int y;", self.app.source.get("1.0", "end"))
+            self.assertTrue(self.app.save_source())
+            self.assertFalse(second.dirty)
+            self.assertIn("int y;", Path(path).read_text())
+            self.app.new_document("int draft;", title="Draft")
+            self.app.source_dirty = True
+            with patch("compiler_studio.gui.messagebox.askyesnocancel", return_value=True), patch("compiler_studio.gui.filedialog.asksaveasfilename", return_value=""):
+                self.assertFalse(self.app.close_document())
+            self.assertEqual(len(self.app.documents), 3)
+
+    def test_editor_block_indentation_and_selected_text_replacement(self):
+        self.app.new_document("int existing;")
+        with self.assertRaises(tk.TclError):
+            self.app.source.edit_undo()
+        self.assertEqual(self.app.source.get("1.0", "end-1c"), "int existing;")
+        self.app._set_source("one\ntwo\n")
+        editor = self.app.source
+        editor.tag_add("sel", "1.0", "3.0")
+        editor._indent(None)
+        self.assertEqual(editor.get("1.0", "end-1c"), "    one\n    two\n")
+        editor.tag_remove("sel", "1.0", "end")
+        editor.tag_add("sel", "1.0", "3.0")
+        editor._unindent(None)
+        self.assertEqual(editor.get("1.0", "end-1c"), "one\ntwo\n")
+        self.app._set_source("if (true) {")
+        editor.mark_set("insert", "end-1c")
+        editor._newline(None)
+        self.assertEqual(editor.get("1.0", "end-1c"), "if (true) {\n    ")
+        editor.tag_add("sel", "1.0", "end-1c")
+        editor._newline(None)
+        self.assertEqual(editor.get("1.0", "end-1c"), "\n")
+
+    def test_tab_switch_cancels_active_job_without_attaching_a_stale_report(self):
+        first = self.app.active_document
+        self.app.run()
+        process = self.app.job.process
+        second = self.app.new_document("int next;")
+        self.root.update()
+        self.assertFalse(process.is_alive())
+        self.assertIsNone(self.app.job)
+        self.assertIsNone(first.result)
+        self.assertIsNone(second.result)
+        self.app.run()
+        self.wait_for_result()
+        self.assertTrue(second.result["ok"])
+        self.assertIsNone(first.result)
+
+    def test_profile_save_dialog_cancel_preserves_language_edits(self):
+        self.app.name.set("My custom language")
+        with patch("compiler_studio.gui.messagebox.askyesnocancel", return_value=True), patch("compiler_studio.gui.filedialog.asksaveasfilename", return_value=""):
+            self.assertFalse(self.app._discard_profile())
+        self.assertTrue(self.app.profile_dirty)
+        self.assertEqual(self.app.name.get(), "My custom language")
+
+    def test_shared_language_edits_and_replacement_invalidate_all_cached_tabs(self):
+        first = self.app.active_document
+        self.app.run()
+        self.wait_for_result()
+        second = self.app.new_document("int other;")
+        self.app.run()
+        self.wait_for_result()
+        self.assertIsNotNone(first.result)
+        self.assertIsNotNone(second.result)
+        self.app.name.set("Edited language")
+        self.assertTrue(all(doc.result is None for doc in self.app.documents))
+        for document in (first, second):
+            self.app.source_tabs.select(document.frame)
+            self.root.update()
+            self.app.run()
+            self.wait_for_result()
+        self.assertTrue(all(doc.result is not None for doc in self.app.documents))
+        with patch("compiler_studio.gui.messagebox.askyesnocancel", return_value=False):
+            self.app.preset("calculator")
+        self.assertTrue(all(doc.result is None for doc in self.app.documents))
+        self.app.source_tabs.select(first.frame)
+        self.root.update()
+        self.assertIsNone(self.app.result)
+        self.assertFalse(self.app.tokens.get_children())
 
 
 if __name__ == "__main__":

@@ -7,7 +7,8 @@ import tempfile
 import unittest
 
 from compiler_studio.profiles import Profile, Rule, calculator_profile
-from compiler_studio.worker import run_isolated
+from compiler_studio.worker import run_isolated, AnalysisWorker
+import time
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -64,6 +65,31 @@ class WorkflowTests(unittest.TestCase):
             source = Path(directory) / "bom.ricepy"
             source.write_text('string message = "سلام";', encoding="utf-8-sig")
             self.assertEqual(self.cli(source).returncode, 0)
+
+    def test_reusable_worker_cache_timeout_and_restart(self):
+        worker = AnalysisWorker()
+        def wait(job):
+            while True:
+                result = job.poll()
+                if result is not None:
+                    return result
+                time.sleep(0.01)
+        try:
+            first = worker.submit("1 + 2", calculator_profile())
+            process = first.process
+            self.assertTrue(wait(first)["ok"])
+            second = worker.submit("3 * 4", calculator_profile())
+            self.assertIs(second.process, process)
+            self.assertTrue(wait(second)["ok"])
+            slow = Profile("Slow", (Rule("BAD", r"(a+)+$"),), "start: BAD")
+            with self.assertRaises(TimeoutError):
+                wait(worker.submit("a" * 35 + "!", slow, "lexer", timeout=0.3))
+            self.assertFalse(process.is_alive())
+            restarted = worker.submit("5 + 6", calculator_profile())
+            self.assertIsNot(restarted.process, process)
+            self.assertTrue(wait(restarted)["ok"])
+        finally:
+            worker.close()
 
 
 if __name__ == "__main__":
