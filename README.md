@@ -6,8 +6,8 @@ This replaces the Flex/Bison/C build workflow with Python and Lark. It analyzes 
 
 ## Open the app on Windows
 
-1. Install **Python 3.11** if it is not already installed, with the PATH option enabled.
-2. Double-click **run.bat**. First launch prepares a local environment and installs the pinned dependency; internet access is needed for this setup. Later launches use the prepared environment.
+1. Open a terminal and activate an existing compatible Python/Conda environment with Lark and Tkinter.
+2. Run **run.bat** from that activated terminal. The launcher uses your active environment and never creates an environment or installs packages. Activate an existing environment with Lark and Tkinter first.
 3. Click **Analyze code**, or open **Examples**, choose a topic and click **Analyze this example**.
 
 The app starts with four simple lines. No grammar configuration is needed to use the default RicePy++ language. `run.bat --check` verifies the local setup without opening a window. Source files and checks stay local; analysis does not execute the source program.
@@ -17,12 +17,13 @@ The app starts with four simple lines. No grammar configuration is needed to use
 Verified baseline: CPython 3.11.0 on Windows, Tk 8.6, Lark 1.3.1. No C compiler, Flex, Bison, browser, or web server is needed.
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\python -m pip install -r requirements.txt
-.venv\Scripts\python -m compiler_studio
+conda activate base  # Or activate another existing compatible environment.
+# Optional dependency setup; requires explicit permission and connectivity.
+python -m pip install -r requirements.txt
+python -m compiler_studio
 ```
 
-On Linux/macOS, use `.venv/bin/python`. The desktop UI needs Tkinter; some Python distributions package Tk separately. CLI analysis works without Tkinter. These platforms have not been verified locally.
+On Linux/macOS, use Python from an existing compatible environment. The desktop UI needs Tkinter; some Python distributions package Tk separately. CLI analysis works without Tkinter. These platforms have not been verified locally.
 
 ```text
 python -m compiler_studio examples/ricepy.ricepy
@@ -103,3 +104,4 @@ Analysis is bounded to 250,000 characters, 40,000 displayed-channel tokens, and 
 The scanner conservatively dispatches rules by required first character while preserving priority, longest-match and row-order semantics. Complex regexes use exhaustive candidate matching. The desktop reuses one isolated worker and its parser cache between completed runs; cancellation or timeout discards that process, and the next run starts a clean one. CLI jobs remain single-use. The local 9,000-token benchmark improved from 206.6 ms to 111.3 ms median total engine time (seven warm runs per version); this is a local measurement, not a universal speed guarantee.
 
 Context checks are specific to the RicePy tree aliases and should be disabled for unrelated custom profiles. There is no symbol resolution, type checking, constant-assignment enforcement, optimizer, runtime, or machine-code backend. Custom pathological regexes can time out. The timeout isolates a job; it is not an operating-system memory sandbox. Exports contain source lexemes; review them before sharing. See `VERIFICATION.md` for checks actually run.
+Current lightweight check (Windows, existing Conda base / Python 3.13.5): **48 passed, 1 skipped**. No dependency installs, model downloads, live publishing, or heavy datasets were used. The suite also reports 171 passing subtests.
