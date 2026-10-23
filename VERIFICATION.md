@@ -1,4 +1,13 @@
-# Verification — 2026-10-22
+# Current verification - 2026-10-23
+
+The final audit used the existing Conda base environment on Windows, Python 3.13.5. No packages, environments or models were downloaded or created. `run.bat` uses the active environment; its check imports real desktop dependencies before reporting success. It does not install dependencies or create an environment.
+
+The selected suite passed 49 tests plus 171 subtests. Launcher checks cover both available dependencies and a deliberately blocked dependency; no desktop window is opened by `--check`.
+
+## Historical verification - 2026-10-22
+
+The following records describe the previous implementation and environment. Old `.venv` commands and automatic-setup observations are historical, not current launcher behavior or setup instructions; use the root README for current setup.
+
 
 Verified locally on Windows with CPython **3.11.0**, Tcl/Tk **8.6.12**, and Lark **1.3.1**, using the isolated project virtual environment.
 
