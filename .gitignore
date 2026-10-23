@@ -21,3 +21,10 @@ dist/
 local/
 .DS_Store
 Thumbs.db
+
+# Local secrets, caches and private runtime files
+.ruff_cache/
+.cache/
+.ipynb_checkpoints/
+.streamlit/secrets.toml
+*.db-*
