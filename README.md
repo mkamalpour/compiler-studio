@@ -1,13 +1,17 @@
 # Compiler Studio
 
-A compiler front end written in Python: a configurable lexer, LALR parser, syntax-tree viewer, and desktop language designer. RicePy++ is the default language, combining the lexical and syntax work from two compiler-design assignments. Define another language without changing Python code.
+Write a small program, inspect its tokens and parse tree, and see where its syntax goes wrong. Compiler Studio combines two compiler-design assignments in a Python desktop app. It opens with the RicePy++ language; you can define another language through the editor.
 
 This replaces the Flex/Bison/C build workflow with Python and Lark. It analyzes source; it does not compile Python programs, execute input, or generate executables.
+
+## Try it first
+
+Click **Analyze code** on the starter program. Open **Examples** to try another program, then edit a line and analyze it again to see the diagnostic. Grammar editing is optional; the default language is ready to use.
 
 ## Open the app on Windows
 
 1. Open a terminal and activate an existing compatible Python/Conda environment with Lark and Tkinter.
-2. Run **run.bat** from that activated terminal. The launcher uses your active environment and never creates an environment or installs packages. Activate an existing environment with Lark and Tkinter first.
+2. Run **run.bat** from that activated terminal. The launcher uses your active environment and never creates an environment or installs packages.
 3. Click **Analyze code**, or open **Examples**, choose a topic and click **Analyze this example**.
 
 The app starts with four simple lines. No grammar configuration is needed to use the default RicePy++ language. `run.bat --check` verifies the local setup without opening a window. Source files and checks stay local; analysis does not execute the source program.
@@ -17,8 +21,8 @@ The app starts with four simple lines. No grammar configuration is needed to use
 Verified baseline: CPython 3.11.0 on Windows, Tk 8.6, Lark 1.3.1. No C compiler, Flex, Bison, browser, or web server is needed.
 
 ```powershell
-conda activate base  # Or activate another existing compatible environment.
-# Optional dependency setup; requires explicit permission and connectivity.
+conda activate base  # Or use your existing compatible environment.
+# Install dependencies if they are not already available in your environment.
 python -m pip install -r requirements.txt
 python -m compiler_studio
 ```
