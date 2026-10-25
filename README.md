@@ -1,5 +1,7 @@
 # Compiler Studio
 
+**[Explore the interactive project presentation](docs/overview.html)** — open locally in your browser; works offline.
+
 Write a small program, inspect its tokens and parse tree, and see where its syntax goes wrong. Compiler Studio combines two compiler-design assignments in a Python desktop app. It opens with the RicePy++ language; you can define another language through the editor.
 
 This replaces the Flex/Bison/C build workflow with Python and Lark. It analyzes source; it does not compile Python programs, execute input, or generate executables.
