@@ -6,6 +6,15 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 
+def _unique_fields(pairs):
+    result = {}
+    for name, value in pairs:
+        if name in result:
+            raise ValueError(f'Duplicate JSON profile field: {name}')
+        result[name] = value
+    return result
+
+
 @dataclass(frozen=True)
 class Rule:
     name: str
@@ -86,7 +95,7 @@ class Profile:
     def load(cls, path):
         if Path(path).stat().st_size > 1_000_000:
             raise ValueError("Profile exceeds 1 MB.")
-        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8-sig")))
+        return cls.from_dict(json.loads(Path(path).read_text(encoding="utf-8-sig"), object_pairs_hook=_unique_fields))
 
 
 RICEPY_GRAMMAR = """start: statement*

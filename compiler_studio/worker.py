@@ -1,6 +1,8 @@
 """Reusable process isolation, parser caching, cancellation and hard timeouts."""
 
 import multiprocessing as mp
+import json
+import math
 from queue import Empty
 import time
 
@@ -33,23 +35,43 @@ class AnalysisWorker:
     def submit(self, source, profile, mode="pipeline", timeout=TIMEOUT):
         if self.active is not None:
             raise RuntimeError("Cancel the active analysis before starting another.")
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError('Analysis timeout must be a positive, finite number of seconds.')
+        if not isinstance(source, str):
+            raise ValueError('Analysis source must be text.')
+        # Serialize before acquiring a process/active job. Bad caller data must not
+        # poison a reusable worker or fail later in Queue's background feeder.
+        try:
+            profile_data = profile.to_dict()
+            json.dumps(profile_data, allow_nan=False)
+        except (AttributeError, TypeError, ValueError, RecursionError) as exc:
+            raise ValueError('Analysis requires a serializable language profile.') from exc
         if self.process is None or not self.process.is_alive():
             self.close()
             context = mp.get_context("spawn")
             self.requests, self.responses = context.Queue(), context.Queue()
             self.process = context.Process(target=_serve, args=(self.requests, self.responses), daemon=True)
-            self.process.start()
+            try:
+                self.process.start()
+            except BaseException:
+                self.close()
+                raise
         self.serial += 1
         job = RunningJob(self, self.serial, timeout)
         self.active = job
-        self.requests.put((job.request_id, source, profile.to_dict(), mode))
+        try:
+            self.requests.put((job.request_id, source, profile_data, mode))
+        except BaseException:
+            self.close()
+            raise
         return job
 
     def close(self):
         if self.process is not None:
             if self.process.is_alive():
                 self.process.terminate()
-            self.process.join(timeout=0.5)
+            if self.process.pid is not None:
+                self.process.join(timeout=0.5)
         for queue in (self.requests, self.responses):
             if queue is not None:
                 queue.cancel_join_thread()
