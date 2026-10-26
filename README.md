@@ -134,3 +134,9 @@ Worker submissions now reject non-finite/non-positive deadlines and unserializab
 
 See the [engineering audit](docs/ENGINEERING_AUDIT.md) for the dated test baseline,
 project assessment, environment assignment and remaining work.
+
+## Additional workflow improvements
+
+Optional CLI diagnostic explanations show bounded source context, a caret and next-step hints while preserving JSON output and failure exit codes.
+
+python -m compiler_studio examples/invalid.ricepy --explain

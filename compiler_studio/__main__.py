@@ -20,6 +20,7 @@ def main(argv=None):
     parser.add_argument("--mode", choices=["pipeline", "lexer", "validate"], default="pipeline")
     parser.add_argument("--json", metavar="PATH", help="write a full report to a NEW file; '-' prints JSON")
     parser.add_argument("--save-preset", metavar="PATH", help="save the selected profile to a NEW JSON file")
+    parser.add_argument('--explain', action='store_true', help='show source context and plain-language diagnostic hints')
     args = parser.parse_args(argv)
     try:
         profile = Profile.load(args.profile) if args.profile else ricepy_profile() if args.preset == "ricepy" else calculator_profile()
@@ -65,6 +66,19 @@ def main(argv=None):
             for diagnostic in result["diagnostics"]:
                 print(f"{diagnostic['stage']} {diagnostic['line']}:{diagnostic['column']}: "
                       f"{diagnostic['message']}", file=sys.stderr)
+                if args.explain:
+                    from .presentation import explain_diagnostic
+                    message, hint = explain_diagnostic(diagnostic, source)
+                    lines = source.splitlines()
+                    line = diagnostic.get('line', 1)
+                    column = max(1, diagnostic.get('column', 1))
+                    if 1 <= line <= len(lines):
+                        start = max(0, column - 81)
+                        print('  ' + lines[line - 1][start:start + 160].expandtabs(4), file=sys.stderr)
+                        print('  ' + ' ' * len(lines[line - 1][start:column - 1].expandtabs(4)) + '^', file=sys.stderr)
+                    print('  ' + message, file=sys.stderr)
+                    if hint:
+                        print('  Next: ' + hint, file=sys.stderr)
         return 0 if result["ok"] else 1
     except (OSError, UnicodeError, ValueError, TimeoutError, RuntimeError) as exc:
         print(f"Compiler Studio: {exc}", file=sys.stderr)

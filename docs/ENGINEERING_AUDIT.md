@@ -26,7 +26,7 @@ VS Code's local interpreter settings were aligned with the same assignment.
 
 ## Verification
 
-- **Automated tests:** 52 passed. 1 GUI test skipped.
+- **Automated tests:** 53 passed; 1 reported skips; 0 private-report cases deselected.
 - **Startup check:** `run.cmd --check` passed from outside the repository;
   required startup modules were imported in the assigned environment.
 - **Tested runtime:** Windows; Conda base; Python 3.13.5.
@@ -58,3 +58,17 @@ for quality. These are proposed upgrades, not implemented features or measured s
 External assets: No external models or datasets are needed; code generation is outside current scope.
 
 No root license file is set. No license was selected or changed.
+
+## Additional implementation pass
+
+Optional CLI diagnostic explanations show bounded source context, a caret and next-step hints while preserving JSON output and failure exit codes.
+
+Use: python -m compiler_studio examples/invalid.ricepy --explain
+
+Verification: the complete offline suite passed in the assigned **base**
+environment after this change (53 tests). Regression fixtures remain
+temporary/synthetic. Optional real-model/data quality and external integrations
+remain unverified. No packages, models or additional environments were installed.
+
+The earlier numeric scores are subjective historical assessments; new features do
+not automatically establish a higher score or production readiness.

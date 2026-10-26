@@ -30,6 +30,15 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(missing.returncode, 2)
         self.assertNotIn("Traceback", missing.stderr)
 
+    def test_cli_explanation_preserves_json_and_failure_status(self):
+        result = self.cli('examples/invalid.ricepy', '--explain')
+        self.assertEqual(result.returncode, 1)
+        self.assertIn('^', result.stderr)
+        self.assertIn('Next:', result.stderr)
+        machine = self.cli('examples/invalid.ricepy', '--explain', '--json', '-')
+        self.assertEqual(machine.returncode, 1)
+        self.assertFalse(json.loads(machine.stdout)['ok'])
+
     def test_cli_export_never_overwrites_input_or_existing_report(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / "source.src"
